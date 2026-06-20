@@ -1,0 +1,2086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Boxing Brawler - Mobile Portrait</title>
+    <style>
+        * { user-select: none; -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        body { margin: 0; min-height: 100dvh; background: #0a0f1e; display: flex; justify-content: center; align-items: center; font-family: 'Segoe UI', system-ui, sans-serif; padding: 0; overflow: hidden; }
+
+        /* === MAIN LAYOUT === */
+        .game-wrapper { position: relative; width: 100%; max-width: 420px; height: 100dvh; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+        /* Canvas fills the wrapper, aspect ratio 9:16 */
+        #gameCanvas { display: none; width: 100%; aspect-ratio: 9/16; max-height: 100dvh; border-radius: 16px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); background: #000; }
+
+        button { flex: 1; min-width: 100px; font-size: 1rem; font-weight: bold; padding: 12px 8px; border: none; border-radius: 60px; font-family: inherit; background: #1f2a3e; color: white; box-shadow: 0 5px 0 rgba(0,0,0,0.3); transition: 0.05s linear; cursor: pointer; }
+        button:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(0,0,0,0.3); }
+        button:disabled { opacity: 0.6; transform: none; cursor: not-allowed; }
+        .play-btn { background: linear-gradient(135deg, #44ff44, #44aa44); font-size: 1.3rem; padding: 16px 40px; min-width: 200px; }
+        .back-btn { position: absolute; top: 4.5%; left: 50%; transform: translateX(-50%); z-index: 30; background: rgba(20,25,35,0.75); padding: 7px 11px; font-size: 0.9rem; min-width: auto; width: auto; border-radius: 50%; backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; line-height: 1; border: 1.5px solid rgba(255,255,255,0.2); }
+
+        /* === HP BARS (overlay on canvas) === */
+        .hud-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; display: none; }
+        .hud-overlay.show { display: block; }
+
+        /* Enemy HP: top-left */
+        .enemy-hud { position: absolute; top: 2%; left: 2%; width: 44%; }
+        .enemy-hud .hb-label { font-size: 0.6rem; font-weight: 900; color: #ff8844; text-shadow: 0 1px 3px rgba(0,0,0,0.9); letter-spacing: 1px; margin-bottom: 2px; text-transform: uppercase; }
+        .enemy-hud .hb-name { font-size: 1.05rem; font-weight: 900; color: #ffcc00; text-shadow: 0 2px 5px rgba(0,0,0,0.95), 0 0 10px rgba(255,160,0,0.5); letter-spacing: 0.5px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Player HP: top-right */
+        .player-hud { position: absolute; top: 2%; right: 2%; width: 44%; }
+        .player-hud .hb-label { font-size: 0.6rem; font-weight: 900; color: #44ffaa; text-shadow: 0 1px 3px rgba(0,0,0,0.9); letter-spacing: 1px; margin-bottom: 2px; text-transform: uppercase; text-align: right; }
+
+        /* HP bar shared */
+        .hb-bg { width: 100%; height: 10px; background: rgba(0,0,0,0.6); border-radius: 5px; border: 1.5px solid rgba(255,255,255,0.2); overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+        .hb-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease-out; }
+        .enemy-hb-fill { background: linear-gradient(90deg, #ff4444, #ff8844); width: 100%; }
+        .player-hb-fill { background: linear-gradient(90deg, #44ffaa, #44ff88); width: 100%; float: right; }
+
+        /* Cooldown bar: center between the two HP bars */
+        .attack-cooldown-container { 
+            position: absolute; top: 2%; left: 50%; transform: translateX(-50%);
+            width: 10%; z-index: 21; pointer-events: none; display: none; align-items: center; justify-content: center;
+        }
+        .attack-cooldown-container.show { display: flex; }
+        .attack-cooldown-bg { width: 100%; height: 10px; background: rgba(0,0,0,0.5); border-radius: 4px; border: 1px solid #555; overflow: hidden; }
+        .attack-cooldown-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #ff6600, #ffcc00); border-radius: 3px; transition: width 0.1s linear; }
+        .attack-cooldown-text { display: none; }
+        .attack-cooldown-stagger { display: none !important; }
+
+        /* Score / combo: top-right area, below player HP */
+        .combo-counter { 
+            position: absolute; top: calc(2% + 30px); right: 2%; 
+            z-index: 25; pointer-events: none; text-align: right; opacity: 0; transition: opacity 0.2s ease; 
+        }
+        .combo-counter.show { opacity: 1; }
+        .combo-count-wrap { display: flex; align-items: baseline; justify-content: flex-end; gap: 3px; }
+        .combo-count { 
+            font-size: 2.6rem; font-weight: 900; font-style: italic; 
+            color: #fff; 
+            -webkit-text-stroke: 2px #ff4400;
+            text-shadow: 0 0 10px #ff8800, 0 0 24px #ff4400, 0 0 40px #ff2200, 3px 3px 0 rgba(0,0,0,0.5); 
+            line-height: 1; 
+            animation: comboPunchIn 0.35s cubic-bezier(.17,.89,.32,1.49);
+        }
+        .combo-x { font-size: 1.3rem; font-weight: 900; font-style: italic; color: #ffcc00; text-shadow: 0 0 8px #ff8800, 2px 2px 0 rgba(0,0,0,0.5); }
+        .combo-label { font-size: 0.65rem; font-weight: 900; color: #ffcc00; text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 10px rgba(255,150,0,0.6); letter-spacing: 2px; margin-top: -2px; }
+        @keyframes comboPunchIn { 
+            0% { transform: scale(0.3) rotate(-15deg); opacity: 0; } 
+            55% { transform: scale(1.35) rotate(4deg); opacity: 1; } 
+            75% { transform: scale(0.92) rotate(-2deg); } 
+            100% { transform: scale(1) rotate(0deg); } 
+        }
+        @keyframes comboShake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-3px) rotate(-1deg); }
+            40% { transform: translateX(3px) rotate(1deg); }
+            60% { transform: translateX(-2px); }
+            80% { transform: translateX(2px); }
+        }
+        .combo-counter.shake .combo-count-wrap { animation: comboShake 0.25s ease-in-out; }
+
+        /* === CONTROLS OVERLAY (inside canvas, bottom) === */
+        .overlay-controls { 
+            position: absolute; bottom: 0; left: 0; width: 100%; 
+            height: 28%; /* controls zone = bottom 28% of canvas area */
+            pointer-events: none; z-index: 50; display: none;
+            align-items: flex-end; justify-content: center;
+        }
+        .overlay-controls.show { display: flex; }
+
+        /* Punch buttons */
+        .punch-btn { 
+            position: absolute; bottom: 8%; width: 18%; aspect-ratio: 1;
+            border-radius: 50%; border: 2.5px solid rgba(255,255,255,0.25); 
+            background: rgba(40,70,110,0.88); color: white; 
+            font-size: clamp(1rem,4vw,1.5rem); font-weight: 900; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            cursor: pointer; pointer-events: auto; 
+            box-shadow: 0 4px 16px rgba(0,0,0,0.55), inset 0 0 14px rgba(255,255,255,0.08); 
+            transition: transform 0.08s, box-shadow 0.08s; 
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); 
+        }
+        .punch-btn:active { transform: scale(0.9); }
+        .punch-btn:disabled { opacity: 0.45; transform: none; }
+        .punch-left { left: 4%; }
+        .punch-right { right: 4%; }
+
+        /* Skill buttons row: centre bottom */
+        .skill-row { 
+            position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%); 
+            display: flex; gap: 6%; pointer-events: auto; 
+            align-items: center;
+        }
+        .nuclear-btn { 
+            width: clamp(52px,14vw,68px); aspect-ratio: 1;
+            border-radius: 50%; border: 2.5px solid rgba(255,200,100,0.4); 
+            background: rgba(160,30,30,0.88); color: white; 
+            font-size: clamp(0.9rem,3vw,1.3rem); font-weight: 900; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            cursor: pointer; pointer-events: auto; 
+            box-shadow: 0 4px 16px rgba(0,0,0,0.55), inset 0 0 14px rgba(255,80,80,0.15); 
+            transition: transform 0.08s; 
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); 
+            position: relative; /* override old absolute */
+            transform: none; left: auto; bottom: auto;
+        }
+        .nuclear-btn:active { transform: scale(0.9) !important; }
+        .nuclear-btn:disabled { opacity: 0.45; transform: none !important; }
+        .kameha-btn { background: rgba(20,60,180,0.88); border-color: rgba(100,180,255,0.4); box-shadow: 0 4px 16px rgba(0,0,0,0.55), inset 0 0 14px rgba(80,160,255,0.15); }
+
+        /* Rage gauge button: between GRANAT and KAMEHA */
+        .rage-btn {
+            width: clamp(48px,13vw,62px); aspect-ratio: 1; border-radius: 50%;
+            border: 2.5px solid rgba(255,140,0,0.5);
+            background: radial-gradient(circle at 50% 100%, rgba(255,90,0,0.35) 0%, rgba(30,15,10,0.85) 70%);
+            position: relative; overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.55), inset 0 0 10px rgba(255,100,0,0.15);
+            pointer-events: none;
+        }
+        .rage-fill { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: linear-gradient(0deg, #ff4400, #ffaa00 70%, #ffe066); transition: height 0.2s ease-out; opacity: 0.9; }
+        .rage-icon { position: relative; z-index: 2; font-size: clamp(1.1rem,3.4vw,1.5rem); filter: drop-shadow(0 0 4px rgba(0,0,0,0.7)); }
+        .rage-btn.full { animation: ragePulse 0.6s ease-in-out infinite; border-color: #ffcc00; }
+        @keyframes ragePulse { 0%,100% { box-shadow: 0 4px 14px rgba(0,0,0,0.55), 0 0 12px rgba(255,170,0,0.5); } 50% { box-shadow: 0 4px 20px rgba(0,0,0,0.55), 0 0 26px rgba(255,170,0,0.9); } }
+
+        /* Rage mode active: screen border flickers red/orange */
+        .rage-border { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 40; border-radius: 16px; display: none; }
+        .rage-border.active { display: block; animation: rageBorderFlicker 0.3s steps(1) infinite; }
+        @keyframes rageBorderFlicker {
+            0%, 100% { box-shadow: inset 0 0 0px 0px rgba(255,40,0,0); }
+            50% { box-shadow: inset 0 0 0 7px rgba(255,60,0,0.85), inset 0 0 40px 10px rgba(255,120,0,0.5); }
+        }
+
+        .punch-label { font-size: clamp(0.45rem,1.5vw,0.6rem); font-weight: bold; color: rgba(255,255,255,0.7); letter-spacing: 0.5px; margin-top: 1px; }
+        .nuclear-label { font-size: clamp(0.4rem,1.3vw,0.55rem); font-weight: bold; color: rgba(255,200,100,0.9); letter-spacing: 0.5px; margin-top: 1px; }
+
+        /* KO / Defeat screens */
+        .ko-screen, .defeat-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.85); z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; border-radius: 16px; }
+        .ko-screen.show, .defeat-screen.show { opacity: 1; pointer-events: auto; }
+        .ko-text { font-size: 5rem; font-weight: 900; color: #ff4444; text-shadow: 0 0 20px #ff0000, 0 0 40px #ff0000; animation: koPulse 1s ease-in-out infinite; margin-bottom: 10px; }
+        .defeat-text { font-size: 2.2rem; font-weight: 900; color: #ff4444; text-shadow: 0 0 20px #ff0000; text-align: center; margin-bottom: 8px; line-height: 1.3; }
+        .defeat-subtext { font-size: 1.3rem; font-weight: bold; color: #ff8844; margin-bottom: 24px; }
+        @keyframes koPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+        .try-again-btn, .main-menu-btn { padding: 12px 26px; font-size: 1.1rem; font-weight: bold; color: white; border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 5px 15px rgba(0,0,0,0.5); transition: transform 0.2s; margin: 6px; min-width: 160px; }
+        .try-again-btn { background: linear-gradient(135deg, #ff4444, #ff8844); }
+        .main-menu-btn { background: linear-gradient(135deg, #3a5a7a, #5a8aaa); }
+
+        /* === DASHBOARD === */
+        /* === DASHBOARD (Main Menu) — elegant, simple === */
+        .dashboard { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            display: flex; flex-direction: column; align-items: center; 
+            background: radial-gradient(ellipse at 50% 0%, #1a2438 0%, #0a0e1a 55%, #050810 100%);
+            z-index: 300; gap: 0; padding: 0; box-sizing: border-box; overflow-y: auto; border-radius: 16px;
+            scrollbar-width: none;
+        }
+        .dashboard::-webkit-scrollbar { display: none; }
+        .dashboard-inner { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; padding: 28px 18px 24px; box-sizing: border-box; }
+
+        .dashboard-title { 
+            font-size: 1.85rem; font-weight: 900; letter-spacing: 0.5px;
+            background: linear-gradient(180deg, #ffe17a 0%, #ffb238 55%, #ff8c1a 100%);
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 2px 10px rgba(255,140,20,0.45));
+            margin: 0; text-align: center;
+        }
+        .dashboard-subtitle { font-size: 0.78rem; color: #6b7690; margin: -8px 0 4px; text-align: center; letter-spacing: 0.3px; }
+
+        .menu-card { 
+            width: 100%; max-width: 300px; 
+            background: linear-gradient(165deg, rgba(35,45,68,0.55), rgba(18,24,38,0.55)); 
+            border: 1px solid rgba(255,255,255,0.07); 
+            border-radius: 18px; padding: 16px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            display: flex; flex-direction: column; align-items: center; gap: 12px;
+        }
+        .menu-card-label { 
+            align-self: flex-start; font-size: 0.72rem; font-weight: 800; color: #8ea3c9; 
+            letter-spacing: 1.4px; text-transform: uppercase; display: flex; align-items: center; gap: 6px;
+        }
+
+        .dashboard-face-preview { width: 110px; height: 110px; border-radius: 50%; border: 3px solid rgba(255,205,90,0.55); background: #0a0f1e; display: flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 0 0 4px rgba(255,205,90,0.08), 0 8px 20px rgba(0,0,0,0.4); }
+        .dashboard-face-preview img { width: 100%; height: 100%; object-fit: cover; }
+        .dashboard-face-preview .placeholder { font-size: 2.4rem; opacity: 0.5; }
+        .dashboard-upload-btn { background: linear-gradient(160deg, #3d5478, #283854); padding: 8px 20px; font-size: 0.82rem; min-width: auto; border-radius: 30px; box-shadow: 0 4px 14px rgba(0,0,0,0.3); }
+
+        .dashboard-input-group { display: flex; flex-direction: column; gap: 5px; width: 100%; max-width: 280px; }
+        .dashboard-input-group label { color: #8ea3c9; font-size: 0.72rem; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+        .dashboard-input { padding: 10px 13px; border: 1.5px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(8,12,22,0.7); color: #fff; font-size: 0.92rem; font-family: inherit; outline: none; transition: border-color 0.15s; }
+        .dashboard-input:focus { border-color: rgba(255,200,90,0.5); }
+        .dashboard-file-input { display: none; }
+        .dashboard-error { color: #ff5c5c; font-size: 0.78rem; min-height: 16px; text-align: center; font-weight: 600; }
+
+        .play-btn { 
+            background: linear-gradient(160deg, #ffd76a, #ff9d2e 60%, #ff7a1a); 
+            font-size: 1.15rem; padding: 15px 0; width: 100%; max-width: 300px; 
+            box-shadow: 0 8px 22px rgba(255,140,20,0.35), inset 0 1px 0 rgba(255,255,255,0.3);
+            letter-spacing: 1px; color: #2a1500; font-weight: 900; margin-top: 4px; margin-bottom: 22px;
+        }
+        .play-btn:active { transform: translateY(2px); box-shadow: 0 4px 12px rgba(255,140,20,0.3); }
+        .dashboard-file-input { display: none; }
+        .dashboard-crop-section { display: none; flex-direction: column; align-items: center; gap: 8px; width: 100%; max-width: 300px; }
+        .dashboard-crop-section.show { display: flex; }
+        .dashboard-crop-section h4 { margin: 0; color: #cdd8ee; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.3px; }
+        .crop-container { position: relative; width: 150px; height: 178px; border-radius: 50%; border: 3px solid rgba(255,205,90,0.4); overflow: hidden; background: #0a0f1e; cursor: grab; box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
+        .crop-container:active { cursor: grabbing; }
+        .crop-container canvas { border-radius: 0; box-shadow: none; width: 100%; height: 100%; max-height: none; }
+        .face-guide { position: absolute; pointer-events: none; z-index: 10; }
+        .face-guide-eyes { top: 38%; left: 50%; transform: translateX(-50%); width: 60%; height: 2px; background: rgba(0,255,150,0.6); border-radius: 1px; }
+        .face-guide-eyes::before, .face-guide-eyes::after { content:''; position:absolute; top:-6px; width:14px; height:14px; border:2px solid rgba(0,255,150,0.6); border-radius:50%; background:rgba(0,255,150,0.1); }
+        .face-guide-eyes::before { left:15%; }
+        .face-guide-eyes::after { right:15%; }
+        .face-guide-mouth { top:80%; left:50%; transform:translateX(-50%); width:30%; height:2px; background:rgba(255,100,100,0.6); border-radius:1px; }
+        .face-guide-mouth::before { content:''; position:absolute; top:-4px; left:50%; transform:translateX(-50%); width:20px; height:8px; border:2px solid rgba(255,100,100,0.6); border-radius:0 0 10px 10px; background:rgba(255,100,100,0.1); }
+        .face-guide-label { position:absolute; font-size:0.6rem; color:rgba(0,255,150,0.8); font-weight:bold; }
+        .face-guide-label.eyes-label { top:32%; left:50%; transform:translateX(-50%); }
+        .face-guide-label.mouth-label { top:72%; left:50%; transform:translateX(-50%); color:rgba(255,100,100,0.8); }
+        .zoom-controls { display:flex; align-items:center; gap:8px; width:100%; justify-content:center; }
+        .zoom-controls label { color:#8ea3c9; font-size:0.76rem; min-width:40px; font-weight:600; }
+        .zoom-slider { flex:1; max-width:130px; -webkit-appearance:none; appearance:none; height:5px; background:rgba(255,255,255,0.15); border-radius:3px; outline:none; }
+        .zoom-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:15px; height:15px; background:#ffb238; border-radius:50%; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.4); }
+        .zoom-btn { min-width:26px; width:26px; height:26px; padding:0; font-size:0.95rem; border-radius:50%; display:flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.08); }
+        .drag-hint { font-size:0.66rem; color:#5d6a85; margin-top:-4px; }
+        .dashboard-tag-group { display:flex; flex-direction:column; gap:5px; width:100%; max-width:280px; }
+        .dashboard-tag-group label { color:#8ea3c9; font-size:0.72rem; font-weight:800; letter-spacing:1.2px; text-transform:uppercase; }
+        .tag-chips { display:flex; flex-wrap:wrap; gap:5px; }
+        .tag-chip { padding:6px 11px; border-radius:18px; border:1.5px solid rgba(255,255,255,0.1); background:rgba(8,12,22,0.6); color:#8090ab; font-size:0.74rem; cursor:pointer; transition:all 0.15s; font-family:inherit; font-weight:700; }
+        .tag-chip.selected { border-color:#ffb238; background:rgba(255,178,56,0.14); color:#ffcc6a; box-shadow:0 0 10px rgba(255,178,56,0.15); }
+        .gender-chips { display:flex; gap:7px; }
+        .gender-chip { flex:1; padding:7px 8px; border-radius:18px; border:1.5px solid rgba(255,255,255,0.1); background:rgba(8,12,22,0.6); color:#8090ab; font-size:0.76rem; cursor:pointer; transition:all 0.15s; font-family:inherit; font-weight:700; text-align:center; }
+        .gender-chip.selected { border-color:#5ab4ff; background:rgba(90,180,255,0.14); color:#7ec4ff; box-shadow:0 0 10px rgba(90,180,255,0.15); }
+        .gender-row { display:none; flex-direction:column; gap:5px; width:100%; max-width:280px; }
+        .gender-row.show { display:flex; }
+        .crop-actions { display:flex; gap:8px; width: 100%; max-width: 280px; }
+        .crop-actions button { flex:1; min-width:auto; font-size:0.8rem; padding:8px 10px; border-radius: 14px; }
+        .crop-confirm { background: linear-gradient(160deg, #3fae5c, #2a7a3e); }
+        .crop-cancel { background: linear-gradient(160deg, #c44a4a, #8a2a2a); }
+
+        @keyframes staggerPulse { 0%,100%{opacity:1}50%{opacity:0.5} }
+
+        .dashboard.hidden { display: none; }
+
+        /* === HEADGEAR & MAP PICKERS === */
+/* === CAROUSEL PICKER === */
+.picker-carousel { 
+    display: flex; align-items: center; justify-content: center; 
+    gap: 10px; width: 100%; 
+}
+.picker-arrow {
+    width: 32px; height: 32px; border-radius: 50%; 
+    background: rgba(255,255,255,0.08); color: #8ea3c9; 
+    border: 1.5px solid rgba(255,255,255,0.1); 
+    font-size: 1rem; font-weight: 900; 
+    display: flex; align-items: center; justify-content: center; 
+    cursor: pointer; flex-shrink: 0; transition: all 0.15s; 
+    min-width: 32px; padding: 0;
+}
+.picker-arrow:active { background: rgba(255,178,56,0.2); color: #ffb238; transform: scale(0.9); }
+.picker-display {
+    width: 90px; height: 90px; border-radius: 14px; 
+    border: 2px solid rgba(255,178,56,0.4); 
+    background: rgba(8,12,22,0.7); 
+    display: flex; align-items: center; justify-content: center; 
+    overflow: hidden; box-shadow: 0 0 14px rgba(255,178,56,0.15); 
+    flex-shrink: 0; position: relative;
+}
+.picker-display img { width: 100%; height: 100%; object-fit: contain; }
+.picker-display .picker-name {
+    position: absolute; bottom: 4px; left: 0; width: 100%; 
+    text-align: center; font-size: 0.6rem; font-weight: 800; 
+    color: #ffcc6a; text-shadow: 0 1px 3px rgba(0,0,0,0.9); 
+    background: rgba(0,0,0,0.4); padding: 2px 0;
+}
+.picker-display.map-display { width: 140px; height: 80px; }
+.picker-display.map-display img { object-fit: cover; }
+.picker-display.map-display .picker-name { color: #7ec4ff; }
+
+        /* Face preview with headgear overlay */
+        .face-preview-wrap { position:relative; width:110px; height:110px; }
+        .face-preview-wrap .dashboard-face-preview { width:100%; height:100%; }
+        #previewHeadgear { position:absolute; top:-14%; left:-2%; width:104%; height:auto; pointer-events:none; display:none; }
+    </style>
+<base target="_blank">
+</head>
+<body>
+<div class="game-wrapper">
+    <div class="dashboard" id="dashboard">
+      <div class="dashboard-inner">
+        <div class="dashboard-title">🥊 BOXING BRAWLER</div>
+        <div class="dashboard-subtitle">Siapkan karaktermu sebelum bertarung</div>
+
+        <!-- Card: Face setup -->
+        <div class="menu-card">
+            <div class="menu-card-label">👤 Wajah Lawan</div>
+            <div class="face-preview-wrap">
+                <div class="dashboard-face-preview" id="dashboardFacePreview"><span class="placeholder">👤</span></div>
+                <img id="previewHeadgear" src="" alt="">
+            </div>
+            <button class="dashboard-upload-btn" id="dashboardUploadBtn">📁 Pilih Foto Wajah</button>
+            <input type="file" class="dashboard-file-input" id="dashboardFileInput" accept="image/*">
+            <div class="dashboard-crop-section" id="dashboardCropSection">
+                <h4>🎯 Atur Posisi Wajah</h4>
+                <div class="crop-container" id="cropContainer">
+                    <canvas id="cropCanvas" width="250" height="250"></canvas>
+                    <div class="face-guide face-guide-eyes"></div>
+                    <div class="face-guide face-guide-mouth"></div>
+                    <div class="face-guide-label eyes-label">MATA</div>
+                    <div class="face-guide-label mouth-label">MULUT</div>
+                </div>
+                <div class="zoom-controls">
+                    <button class="zoom-btn" id="zoomOutBtn">−</button>
+                    <input type="range" class="zoom-slider" id="zoomSlider" min="0.5" max="3" step="0.05" value="1">
+                    <button class="zoom-btn" id="zoomInBtn">+</button>
+                </div>
+                <p class="drag-hint">👆 Geser gambar untuk menyesuaikan posisi</p>
+                <div class="crop-actions">
+                    <button class="crop-confirm" id="cropConfirmBtn">✅ Simpan</button>
+                    <button class="crop-cancel" id="cropCancelBtn">❌ Batal</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card: Identity -->
+        <div class="menu-card">
+            <div class="menu-card-label">🪪 Identitas Lawan</div>
+            <div class="dashboard-input-group">
+                <label for="dashboardEnemyName">Nama Musuh</label>
+                <input type="text" class="dashboard-input" id="dashboardEnemyName" placeholder="Masukkan nama musuh..." maxlength="20">
+            </div>
+            <div class="dashboard-tag-group">
+                <label>Tag Lawan</label>
+                <div class="tag-chips" id="tagChips">
+                    <button class="tag-chip" data-tag="pacar">💕 Pacar</button>
+                    <button class="tag-chip" data-tag="mantan">💔 Mantan</button>
+                    <button class="tag-chip" data-tag="teman">🤝 Teman</button>
+                    <button class="tag-chip" data-tag="boss">💼 Boss</button>
+                    <button class="tag-chip" data-tag="pejabat konoha">🍃 Pejabat Konoha</button>
+                    <button class="tag-chip" data-tag="lainnya">❓ Lainnya</button>
+                </div>
+            </div>
+            <div class="gender-row" id="genderRow">
+                <label>Gender Lawan</label>
+                <div class="gender-chips" id="genderChips">
+                    <button class="gender-chip" data-gender="male">♂ Laki-laki</button>
+                    <button class="gender-chip" data-gender="female">♀ Perempuan</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card: Headgear -->
+        <div class="menu-card">
+            <div class="menu-card-label">🪖 Headgear</div>
+            <div class="picker-carousel" id="headgearCarousel">
+                <button class="picker-arrow" id="headgearPrev">‹</button>
+                <div class="picker-display" id="headgearDisplay">
+                    <img src="headgear.png" alt="" id="headgearDisplayImg">
+                    <span class="picker-name" id="headgearDisplayName">Default</span>
+                </div>
+                <button class="picker-arrow" id="headgearNext">›</button>
+            </div>
+        </div>
+
+        <!-- Card: Map -->
+        <div class="menu-card">
+            <div class="menu-card-label">🗺️ Arena</div>
+            <div class="picker-carousel" id="mapCarousel">
+                <button class="picker-arrow" id="mapPrev">‹</button>
+                <div class="picker-display map-display" id="mapDisplay">
+                    <img src="bg.png" alt="" id="mapDisplayImg">
+                    <span class="picker-name" id="mapDisplayName">Arena 1</span>
+                </div>
+                <button class="picker-arrow" id="mapNext">›</button>
+            </div>
+        </div>
+
+        <div class="dashboard-error" id="dashboardError"></div>
+        <button class="play-btn" id="playBtn">▶ PLAY</button>
+      </div>
+    </div>
+
+    <!-- Game canvas + all HUD overlays are in a single relative container -->
+    <div id="gameContainer" style="position:relative; width:100%; display:none;">
+        <canvas id="gameCanvas" width="1080" height="1920" style="width:100%; height:auto; aspect-ratio:9/16; display:block; border-radius:16px; box-shadow:0 20px 40px rgba(0,0,0,0.6);"></canvas>
+
+        <!-- HUD overlay: enemy HP (top-left) + player HP (top-right) -->
+        <div class="hud-overlay show" id="hudOverlay">
+            <div class="enemy-hud">
+                <div class="hb-label">ENEMY</div>
+                <div class="hb-bg"><div class="hb-fill enemy-hb-fill" id="healthBarFill"></div></div>
+                <div class="hb-name" id="enemyNameDisplay"></div>
+            </div>
+            <div class="player-hud">
+                <div class="hb-label">YOU</div>
+                <div class="hb-bg"><div class="hb-fill player-hb-fill" id="playerHealthBarFill"></div></div>
+            </div>
+        </div>
+
+        <!-- Cooldown bar: thin strip center-top -->
+        <div class="attack-cooldown-container" id="attackCooldownContainer">
+            <div class="attack-cooldown-bg"><div class="attack-cooldown-fill" id="attackCooldownFill"></div></div>
+            <div class="attack-cooldown-text" id="attackCooldownText"></div>
+            <div class="attack-cooldown-stagger" id="staggerText" style="display:none;"></div>
+        </div>
+
+        <!-- Combo: top-right below player HP -->
+        <div class="combo-counter" id="comboCounter">
+            <div class="combo-count-wrap">
+                <span class="combo-x">x</span><span class="combo-count" id="comboCount">0</span>
+            </div>
+            <div class="combo-label">COMBO!</div>
+        </div>
+
+        <!-- Back / Pause button: top-center, below cooldown bar -->
+        <button class="back-btn" id="backBtn" style="display:none;">⏸</button>
+
+        <!-- Rage mode border flicker overlay -->
+        <div class="rage-border" id="rageBorder"></div>
+
+        <!-- Controls overlay: bottom area of canvas -->
+        <div class="overlay-controls" id="overlayControls">
+            <div class="punch-btn punch-left" id="overlayLeftPunch">
+                👊<span class="punch-label">KIRI</span>
+            </div>
+            <div class="skill-row">
+                <div class="nuclear-btn" id="overlayNuclear">
+                    💣<span class="nuclear-label">GRANAT</span>
+                </div>
+                <div class="rage-btn" id="rageGauge">
+                    <div class="rage-fill" id="rageFill"></div>
+                    <div class="rage-icon">🔥</div>
+                </div>
+                <div class="nuclear-btn kameha-btn" id="overlayKameha">
+                    ✨<span class="nuclear-label" style="color:rgba(180,220,255,0.95);">KAMEHA</span>
+                </div>
+            </div>
+            <div class="punch-btn punch-right" id="overlayRightPunch">
+                👊<span class="punch-label">KANAN</span>
+            </div>
+        </div>
+
+        <!-- KO / Defeat screens -->
+        <div class="ko-screen" id="koScreen">
+            <div class="ko-text">K.O.</div>
+            <button class="try-again-btn" id="tryAgainBtn">TRY AGAIN</button>
+            <button class="main-menu-btn" id="koMainMenuBtn">🏠 Main Menu</button>
+        </div>
+        <div class="defeat-screen" id="defeatScreen">
+            <div class="defeat-text">KAMU DIKALAHKAN</div>
+            <div class="defeat-subtext" id="defeatSubtext"></div>
+            <button class="try-again-btn" id="defeatTryAgainBtn">TRY AGAIN</button>
+            <button class="main-menu-btn" id="defeatMainMenuBtn">🏠 Main Menu</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const assets = {
+            bg: new Image(), mainbody: new Image(), headgear: new Image(), hand: new Image(),
+            enemyatk: new Image(), enemypunch: new Image(), missile: new Image(), explode: new Image(), explodePng: new Image(),
+            punch: new Image(), punch2: new Image(), hitbox: new Image(), power: new Image(),
+            matakanan: new Image(), matakiri: new Image(), bibir: new Image(), glassbreak: new Image(),
+            lefthit: new Image(), righthit: new Image(), leftlowhit: new Image(), rightlowhit: new Image(),
+            matakiri2: new Image(), matakiribuka: new Image(), hitefek: new Image(),
+            matakanan2: new Image(), matakananbuka: new Image(), hitefek2: new Image(),
+            bibir2: new Image(),
+            mouthpunchleft: new Image(), mouthpunchright: new Image(),
+            gosong: new Image(), split: new Image(),
+            kamehaExplode: new Image(),
+            fire: new Image(),
+            api1: new Image(), api2: new Image(),
+            firepunchkiri: new Image(), firepunchkanan: new Image(),
+        };
+        // Frame-by-frame animation arrays
+        const grenadeFrames = Array.from({length:8}, (_,i) => { const img = new Image(); img.src = `grenate/${i}.png`; return img; });
+        const kamehaFrames = Array.from({length:15}, (_,i) => { const img = new Image(); img.src = `kameha/kame${i+1}.png`; return img; });
+        const matahitamFrames = Array.from({length:11}, (_,i) => { const img = new Image(); img.src = `matahitam/${i+1}.png`; return img; });
+        // Speech bubble message images per tag/gender (loaded on game start)
+        const msgImages = {};
+        const TAGS_GENDERED = ['pacar','mantan','teman'];
+        const TAGS_UNISEX = ['boss','pejabat konoha','lainnya'];
+        function loadMsgImages(tag, gender) {
+            const key = TAGS_GENDERED.includes(tag) ? `${tag}/${gender}` : tag;
+            if(msgImages[key]) return; // already loaded
+            msgImages[key] = Array.from({length:10}, (_,i) => {
+                const img = new Image();
+                const folder = TAGS_GENDERED.includes(tag) ? `${tag}/${gender}` : tag;
+                img.src = `msg/${folder}/msg${i+1}.png`;
+                return img;
+            });
+        }
+        const sounds = { 
+            punchHit: new Audio(), explosionHit: new Audio(),
+            launch: new Audio(), kamehaExplosionHit: new Audio(),
+            bom: new Audio(), charge: new Audio(),
+            fire: new Audio(),
+            hurt: new Audio(), pejabatHit: new Audio(), pejabatEnd: new Audio(),
+            pejabatEnd2: new Audio(), femaleEnd: new Audio(),
+            goblok: new Audio(), goblok2: new Audio(),
+            umumEnd: new Audio(), geli: new Audio(),
+            punchHit2: new Audio(), bgm: new Audio()
+        };
+        sounds.bom.src = "bom.mp3";
+        sounds.charge.src = "charge.mp3";
+        sounds.punchHit.src = "punchhit.mp3";
+        sounds.explosionHit.src = "explosionhit.mp3";
+        sounds.launch.src = "launch.mp3";
+        sounds.kamehaExplosionHit.src = "kamehaexplosionhit.mp3";
+        sounds.fire.src = "fire.mp3";
+        sounds.hurt.src = "hurt.mp3";
+        sounds.pejabatHit.src = "pejabathit.mp3";
+        sounds.pejabatEnd.src = "pejabatend.mp3";
+        sounds.pejabatEnd2.src = "pejabatend2.mp3";
+        sounds.femaleEnd.src = "femaleend.mp3";
+        sounds.goblok.src = "goblok.mp3";
+        sounds.goblok2.src = "goblok2.mp3";
+        sounds.umumEnd.src = "umumend.mp3";
+        sounds.geli.src = "geli.mp3";
+        sounds.punchHit2.src = "punchhit2.mp3";
+        sounds.bgm.src = "bgm.mp3";
+        sounds.bgm.loop = true;
+        assets.fire.src = "fire.png";
+        assets.api1.src = "api1.png";
+        assets.api2.src = "api2.png";
+        assets.firepunchkiri.src = "firepunchkiri.png";
+        assets.firepunchkanan.src = "firepunchkanan.png";
+        assets.bg.src = "bg.png";
+        assets.mainbody.src = "mainbody.png";
+        assets.headgear.src = "headgear.png"; // will be overridden at game start
+        assets.hand.src = "hand.png";
+        assets.enemyatk.src = "enemyatk.png";
+        assets.enemypunch.src = "enemypunch.png";
+        assets.missile.src = "missile.png";
+        assets.explode.src = "explode.gif";
+        assets.explodePng.src = "explode.png";
+        assets.punch.src = "punch.png";
+        assets.punch2.src = "punch2.png";
+        assets.hitbox.src = "hitbox.png";
+        assets.power.src = "power.png";
+        assets.matakanan.src = "matakanan.png";
+        assets.matakiri.src = "matakiri.png";
+        assets.bibir.src = "bibir.png";
+        assets.glassbreak.src = "glassbreak.png";
+        assets.lefthit.src = "lefthit.png";
+        assets.righthit.src = "righthit.png";
+        assets.leftlowhit.src = "leftlowhit.png";
+        assets.rightlowhit.src = "rightlowhit.png";
+        // Extra face damage variants
+        assets.matakiri2.src = "matakiri2.png";
+        assets.matakiribuka.src = "matakiribuka.png";
+        assets.hitefek.src = "hitefek.png";
+        assets.matakanan2.src = "matakanan2.png";
+        assets.matakananbuka.src = "matakananbuka.png";
+        assets.hitefek2.src = "hitefek2.png";
+        assets.bibir2.src = "bibir2.png";
+        // Mouth punch overlays
+        assets.mouthpunchleft.src = "mouthpunchleft.png";
+        assets.mouthpunchright.src = "mouthpunchright.png";
+        assets.gosong.src = "gosong.png";
+        assets.split.src = "split.png";
+        assets.kamehaExplode.src = "kamehaexplode.png";
+
+        let gameState = 'dashboard';
+        let enemyName = '';
+        let enemyTag = '';
+        let enemyGender = '';
+        let selectedHeadgearSrc = 'headgear.png';
+        let selectedMapSrc = 'bg.png';
+        // Blink transition state (after gosong/split ends)
+        let blinkTransition = { active: false, startTime: 0, duration: 1200, interval: 120 };
+        // Fire effect after KO uppercut
+        let fireEffect = { active: false, startTime: 0, duration: 1500, x: 0, y: 0 };
+        // Execution trail points for punch motion blur
+        let punchTrail = [];
+        // Speech bubble
+        let speechBubble = { active: false, startTime: 0, duration: 3500, imgIndex: 0, img: null };
+        let speechBubbleTimer = null;
+        let maxEnemyHealth = 1000, currentEnemyHealth = 1000;
+        let maxPlayerHealth = 500, currentPlayerHealth = 500;
+        let isAnimating = false, activeEffect = null, hitboxEffect = null;
+        let activePunchSide = null; // 'left', 'right', or null
+        let koScene = null, isGameOver = false, gameOverType = null;
+        let isStaggered = false;
+        let glassBreakEffect = { active: false, startTime: 0, duration: 600, x: 0, y: 0, scale: 1 };
+        let screenFlash = { active: false, startTime: 0, duration: 150, color: 'rgba(255,255,255,0.3)' };
+
+        const idleBobSpeed = 0.003, idleBobAmount = 15;
+        const idleJiggleSpeed = 0.008, idleJiggleAmount = 4;
+        let hitShake = { active: false, startTime: 0, duration: 500, intensity: 20 };
+        let cameraShake = { active: false, startTime: 0, duration: 600, intensity: 35 };
+
+        let enemyAttack = { 
+            active: false, startTime: 0, duration: 1200, 
+            cooldown: 4000, nextAttackTime: 0, growPhase: true, 
+            growDuration: 400, maxScale: 1.3, damage: 30,
+            staggerEndTime: 0, isStaggered: false
+        };
+
+        let comboCount = 0, comboTimer = null;
+        const comboTimeout = 2000;
+
+        let customFaceImage = null, customFaceDataUrl = null, showCustomFace = false;
+        const cropCanvas = document.getElementById('cropCanvas');
+        const cropCtx = cropCanvas.getContext('2d');
+        let cropImage = null, cropZoom = 1, cropOffsetX = 0, cropOffsetY = 0;
+        let isDragging = false, dragStartX = 0, dragStartY = 0, dragStartOffsetX = 0, dragStartOffsetY = 0;
+        let headRecoil = { active: false, startTime: 0, duration: 300, direction: 'none', maxOffset: 30 };
+        let totalHitsTaken = 0;
+        let damageEffects = { matakiri: false, matakanan: false, bibir: false };
+        let punchAssetsHidden = false; // hides canvas punch.png assets temporarily
+
+        let enemyDodgeTimer = null, enemyDodgeReturnTimer = null;
+        const charWidth = Math.floor(canvas.width * 0.95);
+        const charHeight = Math.floor(charWidth * 1.2857);
+        const charX = (canvas.width - charWidth) / 2;
+        const charY = canvas.height - charHeight - 2;
+        const faceArea = { relativeX: 0.30, relativeY: -0.07, relativeW: 0.40, relativeH: 0.30 };
+
+        let enemyFaceRise = { active: false, startTime: 0, duration: 1500, targetY: canvas.height * 0.20 };
+        let explodeFlash = { active: false, startTime: 0, duration: 800 };
+
+        let hitReaction = { active: false, startTime: 0, duration: 800, type: null, direction: null };
+
+        // Grenade frame-by-frame animation state
+        let grenadeAnim = { active: false, startTime: 0, duration: 1200, totalFrames: 8, frameDuration: 150 };
+        // Gosong (burned) state after grenade
+        let gosongState = { active: false, startTime: 0, duration: 2000 };
+        // Matahitam frame-by-frame state
+        let matahitamAnim = { active: false, startTime: 0, totalFrames: 11, frameDuration: 180 };
+        // Kameha frame-by-frame animation state
+        let kamehaAnim = { active: false, startTime: 0, duration: 1800, totalFrames: 15, frameDuration: 120 };
+        // Split state after kameha
+        let splitState = { active: false, startTime: 0, duration: 2000 };
+        // Explode overlay on enemy (grenade)
+        let enemyExplodeOverlay = { active: false, startTime: 0, duration: 800 };
+        // Kameha explode overlay
+        let kamehaExplodeOverlay = { active: false, startTime: 0, duration: 800 };
+        // Punch mouth overlay — lasts as long as hit reaction body (800ms), face hits only
+        let mouthPunchOverlay = { active: false, direction: 'left', startTime: 0, duration: 800 };
+        // Face damage random counters per slot
+        let faceHitCounts = { left: 0, right: 0 };
+        const leftEyeFrames = ['matakiri','matakiri2','matakiribuka','hitefek'];
+        const rightEyeFrames = ['matakanan','matakanan2','matakananbuka','hitefek2'];
+        const mouthFrames = ['bibir','bibir2'];
+
+        // === RAGE MODE ===
+        let rageCharge = 0; // 0-100
+        const rageChargePerHit = 14; // ~7-8 regular punches to fill
+        let rageMode = { active: false, startTime: 0, duration: 3000 };
+
+        // === ENEMY DODGE SYSTEM ===
+        // dodgeOffsetX: enemy visual X shift. dodgeSide: 'center' | 'left' | 'right'
+        // If dodgeSide === 'left', enemy moved left -> punches from RIGHT miss, punches from LEFT still connect... 
+        // (defined precisely in dodge logic below)
+        let enemyDodge = { side: 'center', offsetX: 0, nextSwitchTime: 0, active: false };
+        const dodgeShiftAmount = 130; // px shift when dodging
+
+        function takeEnemyDamage(d) { currentEnemyHealth = Math.max(0, currentEnemyHealth - d); updateEnemyHealthBar(); }
+        function updateEnemyHealthBar() {
+            const p = (currentEnemyHealth / maxEnemyHealth) * 100;
+            document.getElementById('healthBarFill').style.width = p + '%';
+            const f = document.getElementById('healthBarFill');
+            f.style.background = p > 60 ? 'linear-gradient(90deg, #ff4444, #ff8844)' : p > 30 ? 'linear-gradient(90deg, #ff4444, #ff6644)' : 'linear-gradient(90deg, #aa0000, #ff4444)';
+        }
+        function takePlayerDamage(d) { currentPlayerHealth = Math.max(0, currentPlayerHealth - d); updatePlayerHealthBar(); }
+        function updatePlayerHealthBar() {
+            const p = (currentPlayerHealth / maxPlayerHealth) * 100;
+            document.getElementById('playerHealthBarFill').style.width = p + '%';
+            const f = document.getElementById('playerHealthBarFill');
+            f.style.background = p > 60 ? 'linear-gradient(90deg, #44ffaa, #44ff88)' : p > 30 ? 'linear-gradient(90deg, #44cc66, #44ff66)' : 'linear-gradient(90deg, #aa0000, #ff4444)';
+        }
+        function showHitbox(x, y) { hitboxEffect = { startTime: performance.now(), duration: 600, x: x, y: y }; }
+        function setButtonsLock(locked) {
+            ['overlayLeftPunch','overlayRightPunch','overlayNuclear','overlayKameha'].forEach(id => { const b = document.getElementById(id); if(b) b.disabled = locked; });
+        }
+        function checkLowEnemyHealth() { return currentEnemyHealth <= 10; }
+        function checkLowPlayerHealth() { return currentPlayerHealth <= 0; }
+
+        function addComboHit() {
+            comboCount++;
+            const counter = document.getElementById('comboCounter');
+            const count = document.getElementById('comboCount');
+            count.innerText = comboCount;
+            if(comboCount > 1) {
+                counter.classList.add('show');
+                // Retrigger pop-in animation
+                count.style.animation = 'none'; count.offsetHeight; count.style.animation = 'comboPunchIn 0.35s cubic-bezier(.17,.89,.32,1.49)';
+                // Retrigger shake on the whole wrap for extra juiciness
+                counter.classList.remove('shake'); counter.offsetHeight; counter.classList.add('shake');
+            } else counter.classList.remove('show');
+            if(comboTimer) clearTimeout(comboTimer);
+            comboTimer = setTimeout(() => { comboCount = 0; counter.classList.remove('show'); comboTimer = null; }, comboTimeout);
+        }
+        function resetCombo() { comboCount = 0; document.getElementById('comboCounter').classList.remove('show'); if(comboTimer) clearTimeout(comboTimer); comboTimer = null; }
+
+        function applyDamageEffect(hitDir, attackType) {
+            totalHitsTaken++;
+            if(totalHitsTaken >= 3) {
+                if(!damageEffects.matakiri) { damageEffects.matakiri = true; faceHitCounts.left = 0; }
+                else { faceHitCounts.left = Math.floor(Math.random() * leftEyeFrames.length); } // random, not cycle
+            }
+            if(totalHitsTaken >= 6) {
+                if(!damageEffects.matakanan) { damageEffects.matakanan = true; faceHitCounts.right = 0; }
+                else { faceHitCounts.right = Math.floor(Math.random() * rightEyeFrames.length); } // random
+            }
+            if(totalHitsTaken >= 9 && !damageEffects.bibir) damageEffects.bibir = true;
+            // Mouth punch overlay: only during face hits (not stomach)
+            if(hitDir && attackType === 'face') {
+                mouthPunchOverlay = { active: true, direction: hitDir, startTime: performance.now(), duration: 800 };
+            }
+        }
+        function resetDamageEffects() {
+            totalHitsTaken = 0; damageEffects = { matakiri: false, matakanan: false, bibir: false };
+            faceHitCounts = { left: 0, right: 0 }; mouthPunchOverlay.active = false;
+            gosongState.active = false; matahitamAnim.active = false;
+            splitState.active = false; grenadeAnim.active = false; kamehaAnim.active = false;
+            enemyExplodeOverlay.active = false; kamehaExplodeOverlay.active = false; speechBubble.active = false;
+            if(speechBubbleTimer) { clearTimeout(speechBubbleTimer); speechBubbleTimer = null; }
+        }
+        function getDamageScale(b) { return b + Math.min(0.5, totalHitsTaken * 0.03); }
+        function drawDamageImageEffects(faceX, faceY, faceW, faceH, offsetX, offsetY, rotation) {
+    const s = getDamageScale(1.0);
+    const now2 = performance.now();
+
+    // Gosong / burned state: show matahitam frame-by-frame on both eye slots
+    if(gosongState.active) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.ellipse(
+                faceX + faceW / 2 + offsetX,
+                faceY + faceH / 2 + offsetY,
+                faceW * 0.45,
+                faceH * 0.50,
+                0, 0, Math.PI * 2
+            );
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+            ctx.fill();
+            ctx.restore();
+        if(matahitamFrames.length > 0) {
+            const elapsed = now2 - matahitamAnim.startTime;
+            const frameIdx = Math.min(matahitamFrames.length - 1, Math.floor(elapsed / matahitamAnim.frameDuration));
+            const img = matahitamFrames[frameIdx];
+            if(img && img.complete && img.naturalWidth) {
+                const eyeW = faceW * 0.32 * s;
+                const eyeH = eyeW * (img.naturalHeight / img.naturalWidth);
+                ctx.save();
+                ctx.drawImage(img, faceX + faceW * 0.31 - eyeW/2 + offsetX, faceY + faceH * 0.40 - eyeH/2 + offsetY, eyeW, eyeH);
+                ctx.drawImage(img, faceX + faceW * 0.69 - eyeW/2 + offsetX, faceY + faceH * 0.40 - eyeH/2 + offsetY, eyeW, eyeH);
+                ctx.restore();
+            }
+        }
+                    
+        return; // skip normal overlays during gosong
+    }
+
+    const centerX = faceX + faceW / 2 + offsetX;
+    const centerY = faceY + faceH / 2 + offsetY;
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(rotation);
+    ctx.translate(-centerX, -centerY);
+    
+    // Left eye - random frame selection per hit
+    if(damageEffects.matakiri) {
+        const frameKey = leftEyeFrames[faceHitCounts.left % leftEyeFrames.length];
+        const img = assets[frameKey];
+        if(img && img.complete && img.naturalWidth) {
+            const w = faceW * 0.25 * s, h = w * (img.naturalHeight / img.naturalWidth);
+            ctx.drawImage(img, faceX + faceW * 0.31 - w / 2 + offsetX, faceY + faceH * 0.40 - h / 2 + offsetY, w, h);
+        }
+    }
+    // Right eye - random frame selection per hit
+    if(damageEffects.matakanan) {
+        const frameKey = rightEyeFrames[faceHitCounts.right % rightEyeFrames.length];
+        const img = assets[frameKey];
+        if(img && img.complete && img.naturalWidth) {
+            const w = faceW * 0.25 * s, h = w * (img.naturalHeight / img.naturalWidth);
+            ctx.drawImage(img, faceX + faceW * 0.69 - w / 2 + offsetX, faceY + faceH * 0.40 - h / 2 + offsetY, w, h);
+        }
+    }
+
+    // Mouth: mouthPunchOverlay (face hits only, no fade, lasts full duration)
+    if(mouthPunchOverlay.active) {
+        const elapsed = now2 - mouthPunchOverlay.startTime;
+        if(elapsed < mouthPunchOverlay.duration) {
+            const mImg = mouthPunchOverlay.direction === 'left' ? assets.mouthpunchleft : assets.mouthpunchright;
+            if(mImg && mImg.complete && mImg.naturalWidth) {
+                const w = faceW * 0.40 * s, h = w * (mImg.naturalHeight / mImg.naturalWidth);
+                ctx.drawImage(mImg, faceX + faceW * 0.5 - w / 2 + offsetX, faceY + faceH * 0.82 - h / 2 + offsetY, w, h);
+            }
+        } else {
+            mouthPunchOverlay.active = false;
+        }
+    } else if(damageEffects.bibir) {
+        const mFrame = (totalHitsTaken % 2 === 0) ? assets.bibir : assets.bibir2;
+        if(mFrame && mFrame.complete && mFrame.naturalWidth) {
+            const w = faceW * 0.30 * s, h = w * (mFrame.naturalHeight / mFrame.naturalWidth);
+            ctx.drawImage(mFrame, faceX + faceW * 0.5 - w / 2 + offsetX, faceY + faceH * 0.82 - h / 2 + offsetY, w, h);
+        }
+    }
+    ctx.restore();
+}
+
+        function drawSpeechBubble(now) {
+            if(!speechBubble.active || !speechBubble.img) return;
+            const elapsed = now - speechBubble.startTime;
+            if(elapsed >= speechBubble.duration) { speechBubble.active = false; return; }
+            const img = speechBubble.img;
+            if(!img.complete || !img.naturalWidth) return;
+            // Position: above-left of enemy head, shifted toward center so it doesn't clip off-canvas
+            const bubW = charWidth * 0.34;
+            const bubH = bubW * (img.naturalHeight / img.naturalWidth);
+            const bubX = charX + charWidth * 0.06;
+            const bubY = charY + charHeight * (-0.05) - bubH * 0.75;
+            // Slight bounce in
+            const inT = Math.min(1, elapsed / 200);
+            const scale = 0.7 + 0.3 * (1 - Math.pow(1 - inT, 3));
+            // Fade out last 500ms
+            const fadeStart = speechBubble.duration - 500;
+            const alpha = elapsed > fadeStart ? 1 - (elapsed - fadeStart) / 500 : 1;
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.translate(bubX + bubW / 2, bubY + bubH / 2);
+            ctx.scale(scale, scale);
+            ctx.drawImage(img, -bubW / 2, -bubH / 2, bubW, bubH);
+            ctx.restore();
+        }
+
+        function triggerSpeechBubble() {
+            if(isGameOver || koScene || !enemyTag) return;
+            const key = TAGS_GENDERED.includes(enemyTag) ? `${enemyTag}/${enemyGender}` : enemyTag;
+            const pool = msgImages[key];
+            if(!pool || pool.length === 0) return;
+            const img = pool[Math.floor(Math.random() * pool.length)];
+            speechBubble = { active: true, startTime: performance.now(), duration: 3500, img };
+            // Schedule next bubble
+            const delay = 6000 + Math.random() * 8000;
+            speechBubbleTimer = setTimeout(triggerSpeechBubble, delay);
+        }
+
+        function startSpeechBubbleSchedule() {
+            if(speechBubbleTimer) clearTimeout(speechBubbleTimer);
+            const delay = 3000 + Math.random() * 5000;
+            speechBubbleTimer = setTimeout(triggerSpeechBubble, delay);
+        }
+
+        function triggerHitShake(i) { hitShake = { active: true, startTime: performance.now(), duration: 500, intensity: i }; }
+        function getIdleOffset(now) { return { x: Math.sin(now * idleJiggleSpeed) * idleJiggleAmount, y: Math.sin(now * idleBobSpeed) * idleBobAmount }; }
+
+        // Picks the correct KO ending voice line based on enemy tag/gender
+        function playKOEndSound() {
+            if(enemyTag === 'pejabat konoha') {
+                const s = Math.random() < 0.5 ? sounds.pejabatEnd : sounds.pejabatEnd2;
+                s.currentTime = 0; s.play().catch(e=>{});
+            } else if((enemyTag === 'pacar' || enemyTag === 'mantan') && enemyGender === 'female') {
+                sounds.femaleEnd.currentTime = 0; sounds.femaleEnd.play().catch(e=>{});
+            } else if((enemyTag === 'pacar' || enemyTag === 'mantan' || enemyTag === 'teman') && enemyGender === 'male') {
+                const s = Math.random() < 0.5 ? sounds.goblok : sounds.goblok2;
+                s.currentTime = 0; s.play().catch(e=>{});
+            } else {
+                sounds.umumEnd.currentTime = 0; sounds.umumEnd.play().catch(e=>{});
+            }
+        }
+
+        // Picks the correct blink-transition sound (pejabat gets a different cue)
+        function playBlinkSound() {
+            if(enemyTag === 'pejabat konoha') {
+                sounds.pejabatHit.currentTime = 0; sounds.pejabatHit.play().catch(e=>{});
+            } else {
+                sounds.geli.currentTime = 0; sounds.geli.play().catch(e=>{});
+            }
+        }
+
+        // Returns true when enemy should be VISIBLE during blink (alternates on/off)
+        function blinkVisible(now) {
+            if(!blinkTransition.active) return true;
+            const elapsed = now - blinkTransition.startTime;
+            if(elapsed >= blinkTransition.duration) { blinkTransition.active = false; return true; }
+            return Math.floor(elapsed / blinkTransition.interval) % 2 === 0;
+        }
+
+        function drawFireEffect(now) {
+            if(!fireEffect.active) return;
+            const elapsed = now - fireEffect.startTime;
+            if(elapsed >= fireEffect.duration) { fireEffect.active = false; return; }
+            const progress = elapsed / fireEffect.duration;
+            const alpha = 1 - Math.pow(progress, 1.5);
+            const scale = 1 + progress * 1.5;
+            if(assets.fire.complete && assets.fire.naturalWidth) {
+                const fw = 500 * scale, fh = fw * (assets.fire.naturalHeight / assets.fire.naturalWidth);
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.drawImage(assets.fire, fireEffect.x - fw/2, fireEffect.y - fh * 0.7, fw, fh);
+                ctx.restore();
+            }
+        }
+        function getHitShakeOffset(now) {
+            if(!hitShake.active) return { x: 0, y: 0 };
+            const e = now - hitShake.startTime;
+            if(e >= hitShake.duration) { hitShake.active = false; return { x: 0, y: 0 }; }
+            const d = 1 - (e / hitShake.duration), i = hitShake.intensity * d;
+            return { x: (Math.random() - 0.5) * 2 * i, y: (Math.random() - 0.5) * 2 * i };
+        }
+
+        function triggerCameraShake(i) { cameraShake = { active: true, startTime: performance.now(), duration: 600, intensity: i }; }
+        function getCameraShakeOffset(now) {
+            if(!cameraShake.active) return { x: 0, y: 0 };
+            const e = now - cameraShake.startTime;
+            if(e >= cameraShake.duration) { cameraShake.active = false; return { x: 0, y: 0 }; }
+            const d = 1 - (e / cameraShake.duration), i = cameraShake.intensity * d;
+            return { x: (Math.random() - 0.5) * 2 * i, y: (Math.random() - 0.5) * 2 * i };
+        }
+
+        // Smoothly interpolate visual dodge offset toward target each frame
+        let currentDodgeVisualX = 0;
+        function getDodgeOffset(now) {
+            const target = enemyDodge.offsetX;
+            currentDodgeVisualX += (target - currentDodgeVisualX) * 0.12;
+            return currentDodgeVisualX;
+        }
+
+        // === RAGE MODE FUNCTIONS ===
+        function addRageCharge(amount) {
+            if(rageMode.active) return; // already raging, no need to fill
+            rageCharge = Math.min(100, rageCharge + amount);
+            updateRageGauge();
+            if(rageCharge >= 100) {
+                startRageMode();
+            }
+        }
+        function updateRageGauge() {
+            const fill = document.getElementById('rageFill');
+            const btn = document.getElementById('rageGauge');
+            if(fill) fill.style.height = rageCharge + '%';
+            if(btn) btn.classList.toggle('full', rageCharge >= 100 && !rageMode.active);
+        }
+        function startRageMode() {
+            rageMode = { active: true, startTime: performance.now(), duration: 3000 };
+            document.getElementById('rageBorder').classList.add('active');
+            // Force enemy to center, cancel dodge scheduling for the duration
+            enemyDodge.side = 'center'; enemyDodge.offsetX = 0; enemyDodge.active = false;
+            setTimeout(() => {
+                rageMode.active = false;
+                rageCharge = 0;
+                updateRageGauge();
+                document.getElementById('rageBorder').classList.remove('active');
+                scheduleEnemyDodge(); // resume dodge scheduling after rage ends
+            }, rageMode.duration);
+        }
+        function resetRage() {
+            rageCharge = 0; rageMode = { active: false, startTime: 0, duration: 3000 };
+            updateRageGauge();
+            document.getElementById('rageBorder').classList.remove('active');
+        }
+
+        // === ENEMY DODGE FUNCTIONS ===
+        function scheduleEnemyDodge() {
+            if(enemyDodgeTimer) clearTimeout(enemyDodgeTimer);
+            const delay = 2500 + Math.random() * 3000;
+            enemyDodgeTimer = setTimeout(() => {
+                if(isGameOver || koScene || rageMode.active) { scheduleEnemyDodge(); return; }
+                performEnemyDodge();
+            }, delay);
+        }
+        function performEnemyDodge() {
+            // Pick a side to dodge to (not center, not same as current)
+            const sides = ['left', 'right'].filter(s => s !== enemyDodge.side);
+            const newSide = sides[Math.floor(Math.random() * sides.length)];
+            enemyDodge.side = newSide;
+            enemyDodge.offsetX = newSide === 'left' ? -dodgeShiftAmount : dodgeShiftAmount;
+            enemyDodge.active = true;
+            // Return to center after a few seconds (reset also happens on taking damage)
+            if(enemyDodgeReturnTimer) clearTimeout(enemyDodgeReturnTimer);
+            enemyDodgeReturnTimer = setTimeout(() => {
+                enemyDodge.side = 'center'; enemyDodge.offsetX = 0; enemyDodge.active = false;
+            }, 2000 + Math.random() * 1500);
+            scheduleEnemyDodge();
+        }
+        function resetEnemyDodgeOnHit() {
+            // Enemy got hit -> snaps back to center, dodge timer resets
+            enemyDodge.side = 'center'; enemyDodge.offsetX = 0; enemyDodge.active = false;
+            if(enemyDodgeReturnTimer) clearTimeout(enemyDodgeReturnTimer);
+            scheduleEnemyDodge();
+        }
+        // Returns true if a punch from `direction` ('left'/'right') would MISS given current dodge state
+        function isPunchMissed(direction) {
+            if(rageMode.active) return false; // rage mode always connects
+            // If enemy dodged left, attacks coming from the right side miss (enemy moved out of that punch's path)
+            if(enemyDodge.side === 'left' && direction === 'right') return true;
+            if(enemyDodge.side === 'right' && direction === 'left') return true;
+            return false;
+        }
+
+        function triggerEnemyAttack() {
+            if(enemyAttack.active || isGameOver || hitReaction.active) return;
+            if(enemyAttack.isStaggered && performance.now() < enemyAttack.staggerEndTime) return;
+            if(performance.now() < enemyAttack.nextAttackTime) return;
+
+            enemyAttack.active = true;
+            enemyAttack.startTime = performance.now();
+            enemyAttack.growPhase = true;
+            enemyAttack.nextAttackTime = performance.now() + enemyAttack.cooldown + enemyAttack.duration;
+            enemyAttack.isStaggered = false;
+            enemyFaceRise = { active: true, startTime: performance.now(), duration: 1500, targetY: canvas.height * 0.20 };
+
+            setTimeout(() => {
+                if(isGameOver || hitReaction.active) return;
+                triggerCameraShake(40);
+                takePlayerDamage(enemyAttack.damage);
+                triggerHeadRecoil('right');
+                const punchX = charX + charWidth / 2;
+                const punchY = charY + charHeight * 0.25;
+                triggerGlassBreak(punchX, punchY);
+                sounds.punchHit.currentTime = 0;
+                sounds.punchHit.play().catch(e => {});
+            }, enemyAttack.growDuration);
+            setTimeout(() => { enemyAttack.active = false; }, enemyAttack.duration);
+        }
+
+        function staggerEnemy(duration) {
+            enemyAttack.isStaggered = true;
+            enemyAttack.staggerEndTime = performance.now() + duration;
+            enemyAttack.active = false;
+            enemyFaceRise.active = false;
+            enemyAttack.nextAttackTime = Math.max(enemyAttack.nextAttackTime, performance.now() + duration + 1000);
+        }
+
+        function updateAttackCooldownIndicator(now) {
+            const container = document.getElementById('attackCooldownContainer');
+            const fill = document.getElementById('attackCooldownFill');
+            const text = document.getElementById('attackCooldownText');
+            const staggerText = document.getElementById('staggerText');
+
+            if(isGameOver || koScene) {
+                container.classList.remove('show');
+                return;
+            }
+
+            container.classList.add('show');
+
+            if(enemyAttack.isStaggered && now < enemyAttack.staggerEndTime) {
+                fill.style.width = '0%';
+                text.innerText = 'STAGGERED!';
+                text.style.color = '#ff4444';
+                staggerText.style.display = 'block';
+                return;
+            }
+
+            staggerText.style.display = 'none';
+            text.style.color = '#ffaa00';
+
+            if(enemyAttack.active) {
+                fill.style.width = '100%';
+                fill.style.background = 'linear-gradient(90deg, #ff0000, #ff4444)';
+                text.innerText = 'ATTACKING!';
+                return;
+            }
+
+            const timeUntilAttack = enemyAttack.nextAttackTime - now;
+            if(timeUntilAttack <= 0) {
+                fill.style.width = '100%';
+                fill.style.background = 'linear-gradient(90deg, #ff6600, #ffcc00)';
+                text.innerText = 'READY!';
+            } else {
+                const totalCooldown = enemyAttack.cooldown + enemyAttack.duration;
+                const progress = Math.max(0, 1 - (timeUntilAttack / totalCooldown));
+                fill.style.width = (progress * 100) + '%';
+                fill.style.background = 'linear-gradient(90deg, #ff6600, #ffcc00)';
+                text.innerText = 'NEXT ATTACK';
+            }
+        }
+
+        function triggerGlassBreak(x, y) {
+            glassBreakEffect = {
+                active: true,
+                startTime: performance.now(),
+                duration: 600,
+                x: x,
+                y: y,
+                scale: 1.5
+            };
+            screenFlash = {
+                active: true,
+                startTime: performance.now(),
+                duration: 150,
+                color: 'rgba(255,255,255,0.3)'
+            };
+        }
+
+        function drawGlassBreak(now) {
+            if(!glassBreakEffect.active) return;
+            const e = now - glassBreakEffect.startTime;
+            if(e >= glassBreakEffect.duration) {
+                glassBreakEffect.active = false;
+                return;
+            }
+            const progress = e / glassBreakEffect.duration;
+            const alpha = 1 - progress;
+            const scale = glassBreakEffect.scale * (1 + progress * 0.5);
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.translate(glassBreakEffect.x, glassBreakEffect.y);
+            ctx.scale(scale, scale);
+            const size = 300;
+            if(assets.glassbreak.complete && assets.glassbreak.naturalWidth) {
+                ctx.drawImage(assets.glassbreak, -size / 2, -size / 2, size, size);
+            }
+            ctx.restore();
+        }
+
+        function drawScreenFlash(now) {
+            if(!screenFlash.active) return;
+            const e = now - screenFlash.startTime;
+            if(e >= screenFlash.duration) {
+                screenFlash.active = false;
+                return;
+            }
+            const alpha = 1 - (e / screenFlash.duration);
+            ctx.save();
+            ctx.fillStyle = screenFlash.color.replace(/[\d.]+\)$/, alpha + ')');
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
+        }
+
+        function getEnemyAttackScale(now) {
+            if(!enemyAttack.active) return 1;
+            const e = now - enemyAttack.startTime;
+            if(e < enemyAttack.growDuration) { const p = e / enemyAttack.growDuration; return 1 + (enemyAttack.maxScale - 1) * (1 - Math.pow(1 - p, 3)); }
+            return enemyAttack.maxScale + Math.sin(((e - enemyAttack.growDuration) / (enemyAttack.duration - enemyAttack.growDuration)) * Math.PI * 4) * 0.05;
+        }
+        function getEnemyFaceRiseOffset(now) {
+            if(!enemyFaceRise.active) return 0;
+            const e = now - enemyFaceRise.startTime;
+            if(e >= enemyFaceRise.duration) { enemyFaceRise.active = false; return 0; }
+            const riseDur = enemyFaceRise.duration * 0.4;
+            const fallDur = enemyFaceRise.duration * 0.6;
+            const targetOffset = enemyFaceRise.targetY - charY;
+            if(e < riseDur) {
+                const p = e / riseDur;
+                return targetOffset * (1 - Math.pow(1 - p, 3));
+            } else {
+                if(enemyAttack.active) {
+                    return targetOffset;
+                } else {
+                    const fallE = e - riseDur;
+                    const p = fallE / fallDur;
+                    return targetOffset * (1 - p);
+                }
+            }
+        }
+        function scheduleNextEnemyAttack() { enemyAttack.nextAttackTime = performance.now() + 4000 + Math.random() * 4000; }
+
+        function triggerHeadRecoil(d) { headRecoil = { active: true, startTime: performance.now(), duration: 300, direction: d, maxOffset: 30 }; }
+        function getHeadRecoilOffset() {
+            if(!headRecoil.active) return { x: 0, y: 0 };
+            const e = performance.now() - headRecoil.startTime;
+            if(e >= headRecoil.duration) { headRecoil.active = false; return { x: 0, y: 0 }; }
+            const p = e / headRecoil.duration, eo = Math.sin(p * Math.PI) * (1 - p * 0.5);
+            if(headRecoil.direction === 'left') return { x: headRecoil.maxOffset * eo, y: 0 };
+            if(headRecoil.direction === 'right') return { x: -headRecoil.maxOffset * eo, y: 0 };
+            if(headRecoil.direction === 'up') return { x: 0, y: headRecoil.maxOffset * eo };
+            return { x: 0, y: 0 };
+        }
+
+        function drawCropCanvas() {
+            if(!cropImage) {
+                cropCtx.fillStyle = '#0a0f1e';
+                cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+                cropCtx.fillStyle = '#3a5a7a';
+                cropCtx.font = '40px Arial';
+                cropCtx.textAlign = 'center';
+                cropCtx.fillText('👤', cropCanvas.width/2, cropCanvas.height/2 + 10);
+                return;
+            }
+            cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+            const cx = cropCanvas.width / 2, cy = cropCanvas.height / 2;
+            const ia = cropImage.width / cropImage.height, ca = cropCanvas.width / cropCanvas.height;
+            let dw, dh;
+            if(ia > ca) { dh = cropCanvas.height * cropZoom; dw = dh * ia; }
+            else { dw = cropCanvas.width * cropZoom; dh = dw / ia; }
+            cropCtx.drawImage(cropImage, cx - dw / 2 + cropOffsetX, cy - dh / 2 + cropOffsetY, dw, dh);
+        }
+        function getCroppedFaceDataUrl() {
+            if(!cropImage) return null;
+            const tc = document.createElement('canvas'); tc.width = 400; tc.height = 400;
+            const tctx = tc.getContext('2d');
+            const cx = tc.width / 2, cy = tc.height / 2;
+            const ia = cropImage.width / cropImage.height;
+            let dw, dh;
+            if(ia > 1) { dh = tc.height * cropZoom; dw = dh * ia; }
+            else { dw = tc.width * cropZoom; dh = dw / ia; }
+            tctx.drawImage(cropImage, cx - dw / 2 + cropOffsetX * (tc.width / cropCanvas.width), cy - dh / 2 + cropOffsetY * (tc.height / cropCanvas.height), dw, dh);
+            return tc.toDataURL('image/png');
+        }
+
+        function showDashboardCropPanel() {
+            document.getElementById('dashboardCropSection').classList.add('show');
+            drawCropCanvas();
+        }
+        function hideDashboardCropPanel() {
+            document.getElementById('dashboardCropSection').classList.remove('show');
+        }
+        function handleDashboardFaceUpload(file) {
+            if(!file) return;
+            const r = new FileReader();
+            r.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    cropImage = img; cropZoom = 1; cropOffsetX = 0; cropOffsetY = 0;
+                    document.getElementById('zoomSlider').value = 1;
+                    showDashboardCropPanel();
+                };
+                img.src = e.target.result;
+            };
+            r.readAsDataURL(file);
+        }
+        function applyDashboardCrop() {
+            if(cropImage) {
+                customFaceDataUrl = getCroppedFaceDataUrl();
+                if(customFaceDataUrl) {
+                    const img = new Image();
+                    img.onload = function() {
+                        customFaceImage = img; showCustomFace = true;
+                        updateDashboardPreview();
+                    };
+                    img.src = customFaceDataUrl;
+                }
+            }
+            hideDashboardCropPanel();
+        }
+        function cancelDashboardCrop() {
+            cropImage = null; cropZoom = 1; cropOffsetX = 0; cropOffsetY = 0;
+            document.getElementById('zoomSlider').value = 1;
+            hideDashboardCropPanel();
+        }
+        function updateDashboardPreview() {
+            const p = document.getElementById('dashboardFacePreview');
+            if(customFaceImage) p.innerHTML = '<img src="' + customFaceDataUrl + '" alt="face">';
+            else p.innerHTML = '<span class="placeholder">👤</span>';
+        }
+
+        function showDashboard() {
+            gameState = 'dashboard';
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('gameContainer').style.display = 'none';
+            document.getElementById('overlayControls').classList.remove('show');
+            document.getElementById('backBtn').style.display = 'none';
+            document.getElementById('koScreen').classList.remove('show');
+            document.getElementById('defeatScreen').classList.remove('show');
+            document.getElementById('attackCooldownContainer').classList.remove('show');
+            if(speechBubbleTimer) { clearTimeout(speechBubbleTimer); speechBubbleTimer = null; }
+            if(enemyDodgeTimer) { clearTimeout(enemyDodgeTimer); enemyDodgeTimer = null; }
+            if(enemyDodgeReturnTimer) { clearTimeout(enemyDodgeReturnTimer); enemyDodgeReturnTimer = null; }
+            resetRage();
+            sounds.bgm.pause();
+        }
+        function startGame() {
+            const ni = document.getElementById('dashboardEnemyName').value.trim();
+            if(!ni) { document.getElementById('dashboardError').innerText = '❌ Masukkan nama lawan!'; return; }
+            if(!customFaceImage) { document.getElementById('dashboardError').innerText = '❌ Pilih foto wajah dulu!'; return; }
+            if(!enemyTag) { document.getElementById('dashboardError').innerText = '❌ Pilih tag lawan!'; return; }
+            if(TAGS_GENDERED.includes(enemyTag) && !enemyGender) { document.getElementById('dashboardError').innerText = '❌ Pilih gender lawan!'; return; }
+            enemyName = ni;
+            loadMsgImages(enemyTag, enemyGender);
+            // Apply selected headgear and map
+            assets.headgear.src = selectedHeadgearSrc;
+            assets.bg.src = selectedMapSrc;
+            document.getElementById('dashboardError').innerText = '';
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('gameContainer').style.display = 'block';
+            document.getElementById('overlayControls').classList.add('show');
+            document.getElementById('backBtn').style.display = 'block';
+            document.getElementById('enemyNameDisplay').innerText = enemyName;
+            gameState = 'playing';
+            resetGame();
+            scheduleNextEnemyAttack();
+            startSpeechBubbleSchedule();
+            scheduleEnemyDodge();
+            sounds.bgm.currentTime = 0; sounds.bgm.play().catch(e=>{});
+        }
+        function resetGame() {
+            currentEnemyHealth = maxEnemyHealth; currentPlayerHealth = maxPlayerHealth;
+            isGameOver = false; gameOverType = null; koScene = null; isStaggered = false;
+            hitShake.active = false; cameraShake.active = false; enemyAttack.active = false;
+            enemyAttack.isStaggered = false;
+            hitReaction.active = false;
+            resetCombo(); resetDamageEffects(); updateEnemyHealthBar(); updatePlayerHealthBar();
+            resetRage();
+            enemyDodge = { side: 'center', offsetX: 0, nextSwitchTime: 0, active: false };
+            currentDodgeVisualX = 0;
+            if(enemyDodgeTimer) { clearTimeout(enemyDodgeTimer); enemyDodgeTimer = null; }
+            if(enemyDodgeReturnTimer) { clearTimeout(enemyDodgeReturnTimer); enemyDodgeReturnTimer = null; }
+            document.getElementById('koScreen').classList.remove('show');
+            document.getElementById('defeatScreen').classList.remove('show');
+            setButtonsLock(false); scheduleNextEnemyAttack();
+            sounds.bgm.currentTime = 0;
+            sounds.bgm.play().catch(e => {});
+        }
+
+function drawCustomFaceOnCanvasWithOffset(baseX, baseY, scale, riseOffset, offsetX, offsetY, rotation) {
+    if(!showCustomFace || !customFaceImage) return;
+    
+    const faceX = baseX + charWidth * faceArea.relativeX * scale + offsetX * scale;
+    const faceY = baseY + charHeight * faceArea.relativeY * scale + riseOffset + offsetY * scale;
+    const faceW = charWidth * faceArea.relativeW * scale;
+    const faceH = charHeight * faceArea.relativeH * scale;
+    const recoil = getHeadRecoilOffset();
+    const tox = recoil.x * scale, toy = recoil.y * scale;
+    const ovalRx = faceH * 0.45;
+    const ovalRy = faceH * 0.50;
+    
+    ctx.save();
+    const centerX = faceX + faceW / 2 + tox;
+    const centerY = faceY + faceH / 2 + toy;
+    ctx.translate(centerX, centerY);
+    ctx.rotate(rotation);
+    ctx.translate(-centerX, -centerY);
+    
+    ctx.beginPath();
+    ctx.ellipse(centerX, centerY, ovalRx, ovalRy, 0, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(customFaceImage, faceX + tox, faceY + toy, faceW, faceH);
+    ctx.restore();
+    
+    drawDamageImageEffects(faceX + tox, faceY + toy, faceW, faceH, 0, 0, rotation);
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(centerX, centerY, ovalRx, ovalRy, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+}
+function drawHeadgearWithOffset(baseX, baseY, scale, riseOffset, offsetX, offsetY, rotation) {
+    if(!assets.headgear.complete || !assets.headgear.naturalWidth) return;
+    
+    const recoil = getHeadRecoilOffset();
+    const tox = recoil.x * scale, toy = recoil.y * scale;
+    
+    const gearX = baseX + charWidth * (faceArea.relativeX - 0.02) * scale + offsetX * scale + tox;
+    const gearY = baseY + charHeight * (faceArea.relativeY - 0.12) * scale + riseOffset + offsetY * scale + toy;
+    const gearW = charWidth * (faceArea.relativeW + 0.04) * scale;
+    const gearH = charHeight * (faceArea.relativeH + 0.12) * scale;
+    
+    const centerX = gearX + gearW / 2;
+    const centerY = gearY + gearH / 2;
+    
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(rotation);
+    ctx.translate(-centerX, -centerY);
+    ctx.drawImage(assets.headgear, gearX, gearY, gearW, gearH);
+    ctx.restore();
+}
+
+function drawIdleHands(now) {
+    if((!assets.punch.complete || !assets.punch.naturalWidth) && (!assets.punch2.complete || !assets.punch2.naturalWidth)) return;
+    if(koScene || isGameOver) return;
+    if(punchAssetsHidden) return; // hidden for 1s when skill button pressed
+    
+    const jiggleX = Math.sin(now * 0.006) * 4;
+    const jiggleY = Math.cos(now * 0.008) * 5;
+    const jiggleRot = Math.sin(now * 0.004) * 0.06;
+    
+    const handW = 580;
+    const handH = 580;
+    const bottomMargin = 10;
+
+    // Rage mode: alternate api1/api2 fire overlay every 150ms
+    const rageFrame = rageMode.active ? (Math.floor(now / 150) % 2 === 0 ? assets.api1 : assets.api2) : null;
+    
+    // Left hand - bottom left corner (punch.png, no flip)
+    if(activePunchSide !== 'left') {
+        const leftX = -170 + jiggleX;
+        const leftY = canvas.height - handH - bottomMargin + jiggleY;
+        ctx.save();
+        ctx.translate(leftX + handW/2, leftY + handH/2);
+        ctx.rotate(-0.25 + jiggleRot);
+        if(assets.punch.complete && assets.punch.naturalWidth) {
+            ctx.drawImage(assets.punch, -handW/2, -handH/2, handW, handH);
+        }
+        if(rageFrame && rageFrame.complete && rageFrame.naturalWidth) {
+            ctx.drawImage(rageFrame, -handW/2, -handH/2, handW, handH);
+        }
+        ctx.restore();
+    }
+    
+    // Right hand - bottom right corner (punch.png, flipped horizontally)
+    if(activePunchSide !== 'right') {
+        const rightX = canvas.width - handW + 170 + jiggleX;
+        const rightY = canvas.height - handH - bottomMargin + jiggleY;
+        ctx.save();
+        ctx.translate(rightX + handW/2, rightY + handH/2);
+        ctx.rotate(0.25 - jiggleRot);
+        ctx.scale(-1, 1);
+        if(assets.punch.complete && assets.punch.naturalWidth) {
+            ctx.drawImage(assets.punch, -handW/2, -handH/2, handW, handH);
+        }
+        if(rageFrame && rageFrame.complete && rageFrame.naturalWidth) {
+            ctx.drawImage(rageFrame, -handW/2, -handH/2, handW, handH);
+        }
+        ctx.restore();
+    }
+}
+
+        function drawHand(baseX, baseY, scale, handScale) {
+            if(!assets.hand.complete || !assets.hand.naturalWidth) return;
+            const hw = charWidth * scale * handScale, hh = charHeight * scale * handScale;
+            ctx.drawImage(assets.hand, baseX + (charWidth * scale - hw) / 2, baseY + (charHeight * scale - hh) / 2, hw, hh);
+        }
+        function drawEnemyAttack(baseX, baseY, scale, attackScale) {
+            if(!assets.enemyatk.complete || !assets.enemyatk.naturalWidth) return;
+            const bw = charWidth * scale * attackScale, bh = charHeight * scale * attackScale;
+            ctx.drawImage(assets.enemyatk, baseX + (charWidth * scale - bw) / 2, baseY + (charHeight * scale - bh) / 2, bw, bh);
+        }
+        function drawEnemyPunchHand(baseX, baseY, scale, punchScale) {
+            if(!assets.enemypunch.complete || !assets.enemypunch.naturalWidth) return;
+            const hw = charWidth * scale * punchScale, hh = charHeight * scale * punchScale;
+            ctx.drawImage(assets.enemypunch, baseX + (charWidth * scale - hw) / 2, baseY + (charHeight * scale - hh) / 2, hw, hh);
+        }
+
+function drawMainCharacter(now, baseX, baseY, scale, rotation, riseOffset) {
+    // Blink transition: skip drawing enemy on "off" frames
+    if(!blinkVisible(now)) return;
+
+    ctx.save();
+    const cx = baseX + (charWidth * scale) / 2, cy = baseY + (charHeight * scale) / 2;
+    ctx.translate(cx, cy); ctx.rotate(rotation); ctx.translate(-cx, -cy);
+    
+    const isAtk = enemyAttack.active;
+    const atkScale = isAtk ? getEnemyAttackScale(now) : 1;
+    
+    let bodyImg = assets.mainbody;
+    let showHand = true;
+    let showHeadgear = true;
+    let faceOffsetX = 0;
+    let faceOffsetY = 0;
+    let faceRotation = 0;
+
+    // Split state: replace whole model, return early
+    if(splitState.active) {
+        ctx.restore();
+        if(assets.split.complete && assets.split.naturalWidth) {
+            ctx.drawImage(assets.split, baseX, baseY + riseOffset, charWidth * scale, charHeight * scale);
+        }
+        return;
+    }
+
+    // Gosong state: replace body with gosong.png, hide hand and headgear
+    if(gosongState.active) {
+        bodyImg = assets.gosong;
+        showHand = false;
+        showHeadgear = false;
+    } else if(hitReaction.active) {
+        const reactionImg = getHitReactionImage();
+        if(reactionImg && reactionImg.complete && reactionImg.naturalWidth) {
+            bodyImg = reactionImg;
+            showHand = false;
+            
+            const e = performance.now() - hitReaction.startTime;
+            const progress = Math.min(1, e / hitReaction.duration);
+            const impactStrength = 1 - Math.pow(1 - Math.min(1, progress * 2), 2);
+            
+            const dir = hitReaction.direction === 'left' ? 1 : -1;
+            const mur = hitReaction.direction === 'left' ? -1 : 1;
+            
+            if(hitReaction.type === 'face') {
+                faceOffsetX = charWidth * 0.30 * dir * impactStrength;
+                faceRotation = (30 * Math.PI / 180) * dir * impactStrength;
+                faceOffsetY = charHeight * 0.10 * impactStrength;
+            } else {
+                faceOffsetX = charWidth * 0.30 * mur * impactStrength;
+                faceRotation = (30 * Math.PI / 180) * mur * impactStrength;
+                faceOffsetY = charHeight * 0.10 * impactStrength;
+            }
+        }
+    }
+    
+    if(isAtk) {
+        drawEnemyAttack(baseX, baseY, scale, atkScale);
+    } else if(bodyImg.complete && bodyImg.naturalWidth) {
+        ctx.drawImage(bodyImg, baseX, baseY + riseOffset, charWidth * scale, charHeight * scale);
+    } else {
+        ctx.fillStyle = "#dd9966";
+        ctx.fillRect(baseX, baseY + riseOffset, charWidth * scale, charHeight * scale);
+    }
+    ctx.restore();
+    
+    // Draw face (skip during split)
+    drawCustomFaceOnCanvasWithOffset(baseX, baseY, scale, riseOffset, faceOffsetX, faceOffsetY, faceRotation);
+    if(showHeadgear) drawHeadgearWithOffset(baseX, baseY, scale, riseOffset, faceOffsetX, faceOffsetY, faceRotation);
+    
+    if(showHand && !isAtk) {
+        drawHand(baseX, baseY, scale, 1 + Math.sin(now * 0.005) * 0.02);
+    }
+    if(isAtk) {
+        drawEnemyPunchHand(baseX, baseY, scale, 1 + (atkScale - 1) * 1.5);
+    }
+
+    // Draw grenade explode overlay — scale-up from 0→7x over duration, centered on enemy
+    if(enemyExplodeOverlay.active) {
+        const elapsed = now - enemyExplodeOverlay.startTime;
+        if(elapsed < enemyExplodeOverlay.duration) {
+            const img = assets.explodePng;
+            if(img.complete && img.naturalWidth) {
+                const progress = elapsed / enemyExplodeOverlay.duration;
+                // Scale from 0.1 to 7.0 with ease-out, fade out last 30%
+                const scaleVal = 0.1 + progress * 6.9;
+                const alpha = progress < 0.7 ? 1 : 1 - ((progress - 0.7) / 0.3);
+                const baseW = charWidth * scale;
+                const baseH = charHeight * scale;
+                const drawW = baseW * scaleVal;
+                const drawH = baseH * scaleVal;
+                const cx = baseX + baseW / 2;
+                const cy = baseY + riseOffset + baseH / 2;
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, alpha);
+                ctx.drawImage(img, cx - drawW / 2, cy - drawH / 2, drawW, drawH);
+                ctx.restore();
+            }
+        } else {
+            enemyExplodeOverlay.active = false;
+        }
+    }
+    // Draw kameha explode overlay — same scale-up to 7x
+    if(kamehaExplodeOverlay.active) {
+        const elapsed = now - kamehaExplodeOverlay.startTime;
+        if(elapsed < kamehaExplodeOverlay.duration) {
+            const img = assets.kamehaExplode;
+            if(img.complete && img.naturalWidth) {
+                const progress = elapsed / kamehaExplodeOverlay.duration;
+                const scaleVal = 0.1 + progress * 6.9;
+                const alpha = progress < 0.7 ? 1 : 1 - ((progress - 0.7) / 0.3);
+                const baseW = charWidth * scale;
+                const baseH = charHeight * scale;
+                const drawW = baseW * scaleVal;
+                const drawH = baseH * scaleVal;
+                const cx = baseX + baseW / 2;
+                const cy = baseY + riseOffset + baseH / 2;
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, alpha);
+                ctx.drawImage(img, cx - drawW / 2, cy - drawH / 2, drawW, drawH);
+                ctx.restore();
+            }
+        } else {
+            kamehaExplodeOverlay.active = false;
+        }
+    }
+}
+
+        function getHitReactionImage() {
+            if(!hitReaction.active) return null;
+            const e = performance.now() - hitReaction.startTime;
+            if(e >= hitReaction.duration) {
+                hitReaction.active = false;
+                return null;
+            }
+
+            const type = hitReaction.type;
+            const dir = hitReaction.direction;
+
+            if(type === 'face') {
+                return dir === 'left' ? assets.lefthit : assets.righthit;
+            } else {
+                return dir === 'left' ? assets.leftlowhit : assets.rightlowhit;
+            }
+        }
+
+        function startKOScene() {
+            isGameOver = true; gameOverType = 'enemy_ko';
+            activeEffect = null; enemyAttack.active = false; hitboxEffect = null; resetCombo();
+            koScene = { phase: 'windup', startTime: performance.now(), powerY: canvas.height - 100, charScale: 1, charY: charY, charX: charX, rotation: 0 };
+            setButtonsLock(true);
+            if(enemyDodgeTimer) { clearTimeout(enemyDodgeTimer); enemyDodgeTimer = null; }
+            if(enemyDodgeReturnTimer) { clearTimeout(enemyDodgeReturnTimer); enemyDodgeReturnTimer = null; }
+            enemyDodge.side = 'center'; enemyDodge.offsetX = 0;
+            sounds.bgm.pause();
+        }
+        function startPlayerDefeat() {
+            isGameOver = true; gameOverType = 'player_defeat';
+            activeEffect = null; enemyAttack.active = false; hitboxEffect = null; resetCombo(); setButtonsLock(true);
+            if(enemyDodgeTimer) { clearTimeout(enemyDodgeTimer); enemyDodgeTimer = null; }
+            if(enemyDodgeReturnTimer) { clearTimeout(enemyDodgeReturnTimer); enemyDodgeReturnTimer = null; }
+            sounds.bgm.pause();
+            setTimeout(() => { document.getElementById('defeatSubtext').innerText = 'Oleh ' + enemyName; document.getElementById('defeatScreen').classList.add('show'); }, 500);
+        }
+        function showGameOverScreen() { document.getElementById('koScreen').classList.add('show'); }
+
+        function setPunchVisibility(visible) {
+            ['overlayLeftPunch','overlayRightPunch'].forEach(id => {
+                const el = document.getElementById(id);
+                if(el) el.style.visibility = visible ? 'visible' : 'hidden';
+            });
+        }
+
+        function startNuclearMissile() {
+            if(isGameOver || enemyAttack.active || hitReaction.active || grenadeAnim.active || kamehaAnim.active) return;
+            if(checkLowEnemyHealth()) { startKOScene(); return; }
+            sounds.bom.currentTime = 0; sounds.bom.play().catch(e=>{});
+            isAnimating = true;
+            // Hide canvas punch assets for 1 second
+            punchAssetsHidden = true;
+            setTimeout(() => { punchAssetsHidden = false; }, 1300);
+            const totalFrames = grenadeFrames.length;
+            const frameDur = 150;
+            grenadeAnim = { active: true, startTime: performance.now(), duration: totalFrames * frameDur, totalFrames, frameDuration: frameDur };
+            setTimeout(() => {
+                grenadeAnim.active = false;
+                triggerNuclearImpact();
+            }, grenadeAnim.duration);
+        }
+
+        function startKameha() {
+            if(isGameOver || enemyAttack.active || hitReaction.active || grenadeAnim.active || kamehaAnim.active) return;
+            if(checkLowEnemyHealth()) { startKOScene(); return; }
+            sounds.charge.currentTime = 0; sounds.charge.play().catch(e=>{});
+            isAnimating = true;
+            // Hide canvas punch assets for 1 second
+            punchAssetsHidden = true;
+            setTimeout(() => { punchAssetsHidden = false; }, 1800);
+            const totalFrames = kamehaFrames.length;
+            const frameDur = 120;
+            kamehaAnim = { active: true, startTime: performance.now(), duration: totalFrames * frameDur, totalFrames, frameDuration: frameDur };
+            setTimeout(() => {
+                kamehaAnim.active = false;
+                triggerKamehaImpact();
+            }, kamehaAnim.duration);
+        }
+
+        function triggerKamehaImpact() {
+            sounds.kamehaExplosionHit.currentTime = 0; sounds.kamehaExplosionHit.play().catch(e=>{});
+            screenFlash = { active: true, startTime: performance.now(), duration: 300, color: 'rgba(255,255,255,0.9)' };
+            resetEnemyDodgeOnHit();
+            const explodeDuration = 1000;
+            kamehaExplodeOverlay = { active: true, startTime: performance.now(), duration: explodeDuration };
+            staggerEnemy(2500);
+            let hitsApplied = 0;
+            function applyKamehaHits() {
+                if(hitsApplied < 10) {
+                    takeEnemyDamage(25); addComboHit(); applyDamageEffect(null, null); triggerHeadRecoil('left'); hitsApplied++;
+                    if(hitsApplied < 10) setTimeout(applyKamehaHits, 80);
+                }
+            }
+            applyKamehaHits();
+            // split.png appears 0.3s after explosion starts
+            setTimeout(() => {
+                splitState = { active: true, startTime: performance.now(), duration: 2000 };
+            }, 300);
+            // After split ends, play blink transition before returning to normal
+            setTimeout(() => {
+                splitState.active = false;
+                kamehaExplodeOverlay.active = false;
+                blinkTransition = { active: true, startTime: performance.now(), duration: 1200, interval: 120 };
+                playBlinkSound();
+                setTimeout(() => {
+                    blinkTransition.active = false;
+                    isAnimating = false;
+                    if(checkLowEnemyHealth()) startKOScene();
+                }, 1200);
+            }, 300 + 2000);
+        }
+
+        function triggerNuclearImpact() {
+            activeEffect = null;
+            sounds.explosionHit.currentTime = 0; sounds.explosionHit.play().catch(e=>{});
+            screenFlash = { active: true, startTime: performance.now(), duration: 300, color: 'rgba(255,255,255,0.9)' };
+            resetEnemyDodgeOnHit();
+            const explodeDuration = 1200;
+            enemyExplodeOverlay = { active: true, startTime: performance.now(), duration: explodeDuration };
+            staggerEnemy(2500);
+            let hitsApplied = 0;
+            function applyNuclearHits() {
+                if(hitsApplied < 8) {
+                    takeEnemyDamage(20); addComboHit(); applyDamageEffect(null, null); triggerHeadRecoil('left'); hitsApplied++;
+                    if(hitsApplied < 8) setTimeout(applyNuclearHits, 100);
+                }
+            }
+            applyNuclearHits();
+            // gosong + matahitam appear 0.3s after explosion starts
+            setTimeout(() => {
+                gosongState = { active: true, startTime: performance.now(), duration: 2000 };
+                matahitamAnim = { active: true, startTime: performance.now(), totalFrames: matahitamFrames.length, frameDuration: 180 };
+            }, 300);
+            // After gosong ends, play blink transition before returning to normal
+            setTimeout(() => {
+                gosongState.active = false;
+                matahitamAnim.active = false;
+                enemyExplodeOverlay.active = false;
+                blinkTransition = { active: true, startTime: performance.now(), duration: 1200, interval: 120 };
+                playBlinkSound();
+                setTimeout(() => {
+                    blinkTransition.active = false;
+                    isAnimating = false;
+                    if(checkLowEnemyHealth()) startKOScene();
+                }, 1200);
+            }, 300 + 2000);
+        }
+
+function startPunch(direction) {
+    if(isGameOver || enemyAttack.active || hitReaction.active) return;
+    if(checkLowEnemyHealth()) { startKOScene(); return; }
+    sounds.launch.currentTime = 0; sounds.launch.play().catch(e=>{});
+    const attackType = Math.random() < 0.5 ? 'face' : 'stomach';
+    const isRage = rageMode.active;
+    const missed = isPunchMissed(direction);
+    
+    isAnimating = true;
+    activePunchSide = direction; // <-- ADD THIS
+    
+    let fromPoint;
+    if(direction === 'left') fromPoint = { x: -100, y: canvas.height + 100 };
+    else fromPoint = { x: canvas.width + 100, y: canvas.height + 100 };
+    
+    activeEffect = { 
+        type: 'punch', 
+        from: fromPoint, 
+        staggerDir: direction, 
+        startTime: performance.now(), 
+        duration: 180,
+        attackType: attackType,
+        isRage: isRage,
+        missed: missed
+    };
+}
+
+        function draw() {
+            const now = performance.now();
+            const camShake = getCameraShakeOffset(now);
+            ctx.save(); ctx.translate(camShake.x, camShake.y);
+            ctx.clearRect(-100, -100, canvas.width + 200, canvas.height + 200);
+            if(assets.bg.complete && assets.bg.naturalWidth) ctx.drawImage(assets.bg, 0, 0, canvas.width, canvas.height);
+            else { ctx.fillStyle = "#1a1e2a"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+
+            const riseOffset = getEnemyFaceRiseOffset(now);
+
+            if(!koScene) {
+                let baseX = charX, baseY = charY, scale = 1, rotation = 0;
+                const idleOff = getIdleOffset(now);
+                baseX += idleOff.x; baseY += idleOff.y;
+                const shakeOff = getHitShakeOffset(now);
+                baseX += shakeOff.x; baseY += shakeOff.y;
+                baseX += getDodgeOffset(now); // smooth dodge slide left/right
+                drawMainCharacter(now, baseX, baseY, scale, rotation, riseOffset);
+            }
+
+            drawIdleHands(now);
+
+            drawGlassBreak(now);
+            drawScreenFlash(now);
+            drawFireEffect(now);
+
+            // Draw grenade frame-by-frame animation ABOVE enemy (full screen width, bottom-anchored)
+            if(grenadeAnim.active) {
+                const elapsed = now - grenadeAnim.startTime;
+                const frameIdx = Math.min(grenadeAnim.totalFrames - 1, Math.floor(elapsed / grenadeAnim.frameDuration));
+                const img = grenadeFrames[frameIdx];
+                if(img && img.complete && img.naturalWidth) {
+                    const drawH = canvas.width * (img.naturalHeight / img.naturalWidth);
+                    ctx.drawImage(img, 0, canvas.height - drawH, canvas.width, drawH);
+                }
+            }
+
+            // Draw kameha frame-by-frame animation ABOVE enemy (full screen width, bottom-anchored)
+            if(kamehaAnim.active) {
+                const elapsed = now - kamehaAnim.startTime;
+                const frameIdx = Math.min(kamehaAnim.totalFrames - 1, Math.floor(elapsed / kamehaAnim.frameDuration));
+                const img = kamehaFrames[frameIdx];
+                if(img && img.complete && img.naturalWidth) {
+                    const drawH = canvas.width * (img.naturalHeight / img.naturalWidth);
+                    ctx.drawImage(img, 0, canvas.height - drawH, canvas.width, drawH);
+                }
+            }
+
+            // Draw speech bubble
+            drawSpeechBubble(now);
+
+            if(hitboxEffect) {
+                const e = performance.now() - hitboxEffect.startTime;
+                if(e < hitboxEffect.duration) { const p = e / hitboxEffect.duration, s = 1.2 - (0.2 * p), sz = 400 * s; ctx.drawImage(assets.hitbox, hitboxEffect.x - sz/2, hitboxEffect.y - sz/2, sz, sz); }
+                else hitboxEffect = null;
+            }
+
+            if(activeEffect) {
+                const now2 = performance.now();
+                const t = Math.min(1, (now2 - activeEffect.startTime) / activeEffect.duration);
+                if(activeEffect.type === 'punch') {
+                    // Target position shifts with current dodge offset so the glove still
+                    // visually travels toward wherever the enemy currently is rendered
+                    const dodgeVisX = currentDodgeVisualX;
+
+                    if(t >= 1 && !activeEffect.impactPhase) {
+                        activeEffect.impactPhase = true; activeEffect.impactStartTime = performance.now();
+
+                        const isStomach = activeEffect.attackType === 'stomach';
+                        const targetY = isStomach ? charY + charHeight * 0.55 : charY + charHeight * 0.25;
+
+                        if(activeEffect.missed) {
+                            // MISS: enemy dodged out of the way, no damage, no stagger, no sound hit
+                            punchTrail = [];
+                        } else if(activeEffect.isRage) {
+                            // RAGE HIT: bigger damage, fire impact, knockback, screen shake
+                            takeEnemyDamage(34); addComboHit(); applyDamageEffect(activeEffect.staggerDir, activeEffect.attackType); triggerHeadRecoil(activeEffect.staggerDir); triggerHitShake(35);
+                            resetEnemyDodgeOnHit();
+                            hitReaction = { active: true, startTime: performance.now(), duration: 800, type: activeEffect.attackType, direction: activeEffect.staggerDir };
+                            staggerEnemy(1200);
+                            punchTrail = [];
+                            sounds.punchHit2.currentTime = 0; sounds.punchHit2.play().catch(e=>{});
+                            sounds.fire.currentTime = 0; sounds.fire.play().catch(e=>{});
+                            sounds.hurt.currentTime = 0; sounds.hurt.play().catch(e=>{});
+                            triggerCameraShake(45);
+                            // Knockback: push enemy further in the punch direction
+                            const knockDir = activeEffect.staggerDir === 'left' ? 1 : -1;
+                            enemyDodge.offsetX = knockDir * dodgeShiftAmount * 1.8;
+                            setTimeout(() => { if(!rageMode.active) { enemyDodge.offsetX = 0; } }, 500);
+                            fireEffect = { active: true, startTime: performance.now(), duration: 900, x: charX + charWidth/2 + dodgeVisX, y: targetY };
+                        } else {
+                            // NORMAL HIT
+                            takeEnemyDamage(22); addComboHit(); applyDamageEffect(activeEffect.staggerDir, activeEffect.attackType); triggerHeadRecoil(activeEffect.staggerDir); triggerHitShake(25);
+                            resetEnemyDodgeOnHit();
+                            addRageCharge(rageChargePerHit);
+                            hitReaction = { active: true, startTime: performance.now(), duration: 800, type: activeEffect.attackType, direction: activeEffect.staggerDir };
+                            staggerEnemy(1200);
+                            punchTrail = [];
+                            sounds.punchHit.currentTime = 0; sounds.punchHit.play().catch(e => {});
+                            sounds.hurt.currentTime = 0; sounds.hurt.play().catch(e => {});
+                            showHitbox(charX + charWidth/2 + dodgeVisX + (Math.random() * 40 - 20), targetY + (Math.random() * 40 - 20));
+                        }
+                    }
+                    if(activeEffect.impactPhase) {
+                        if(performance.now() - activeEffect.impactStartTime >= 1000) {
+                            activeEffect = null; isAnimating = false; 
+                            activePunchSide = null; punchTrail = [];
+                            if(checkLowEnemyHealth()) startKOScene();
+                            ctx.restore(); return;
+                        }
+                        if(!activeEffect.missed) {
+                            const isStomach = activeEffect.attackType === 'stomach';
+                            const tx = charX + charWidth/2 + dodgeVisX;
+                            const ty = isStomach ? charY + charHeight * 0.55 : charY + charHeight * 0.25;
+                            const pImg = activeEffect.isRage
+                                ? (activeEffect.staggerDir === 'right' ? assets.firepunchkanan : assets.firepunchkiri)
+                                : (activeEffect.staggerDir === 'right' ? assets.punch2 : assets.punch);
+                            ctx.drawImage(pImg, tx - 120, ty - 120, 340, 340);
+                        }
+                    } else {
+                        const f = activeEffect.from;
+                        const isStomach = activeEffect.attackType === 'stomach';
+                        // Missed punches sail past the enemy's old position toward off-screen on the far side
+                        const missOvershoot = activeEffect.missed ? (activeEffect.staggerDir === 'left' ? 220 : -220) : 0;
+                        const tx = charX + charWidth/2 + dodgeVisX + missOvershoot;
+                        const ty = isStomach ? charY + charHeight * 0.55 : charY + charHeight * 0.25;
+                        const pImg = activeEffect.isRage
+                            ? (activeEffect.staggerDir === 'right' ? assets.firepunchkanan : assets.firepunchkiri)
+                            : (activeEffect.staggerDir === 'right' ? assets.punch2 : assets.punch);
+                        const curX = f.x + (tx - f.x) * t;
+                        const curY = f.y + (ty - f.y) * t;
+                        // Record trail point
+                        punchTrail.push({ x: curX, y: curY, t: now2 });
+                        if(punchTrail.length > 8) punchTrail.shift();
+                        // Draw trail (speed lines)
+                        for(let i = 0; i < punchTrail.length - 1; i++) {
+                            const pt = punchTrail[i];
+                            const age = (now2 - pt.t) / 120;
+                            const trailAlpha = Math.max(0, 0.6 - age * 0.6);
+                            const trailScale = 0.3 + (i / punchTrail.length) * 0.5;
+                            ctx.save();
+                            ctx.globalAlpha = trailAlpha;
+                            ctx.drawImage(pImg, pt.x - 120 * trailScale, pt.y - 120 * trailScale, 340 * trailScale, 340 * trailScale);
+                            ctx.restore();
+                        }
+                        ctx.drawImage(pImg, curX - 120, curY - 120, 340, 340);
+                    }
+                }
+            }
+
+            if(koScene) {
+                const ke = performance.now() - koScene.startTime;
+                if(koScene.phase === 'windup') {
+                    if(ke > 500) { koScene.phase = 'punch'; koScene.punchStartTime = performance.now(); }
+                    drawMainCharacter(now, charX, charY, 1, 0, 0);
+                    const ro = (ke / 500) * 50;
+                    if(assets.power.complete && assets.power.naturalWidth) ctx.drawImage(assets.power, (canvas.width - 400)/2, canvas.height - 150 + ro, 400, 400);
+                } else if(koScene.phase === 'punch') {
+                    const pe = performance.now() - koScene.punchStartTime, pd = 500, pp = Math.min(1, pe / pd);
+                    if(pp >= 1) { 
+                        koScene.phase = 'launch'; koScene.launchStartTime = performance.now(); 
+                        sounds.punchHit.currentTime = 0; sounds.punchHit.play().catch(e => {});
+                        // Trigger fire effect at face level
+                        sounds.fire.currentTime = 0; sounds.fire.play().catch(e=>{});
+                        playKOEndSound();
+                        fireEffect = { active: true, startTime: performance.now(), duration: 1500, x: charX + charWidth/2, y: charY + charHeight * 0.25 };
+                        triggerCameraShake(60);
+                        screenFlash = { active: true, startTime: performance.now(), duration: 250, color: 'rgba(255,180,0,0.7)' };
+                    }
+                    // Draw trail lines during punch windup
+                    if(pp < 0.8) drawMainCharacter(now, charX, charY, 1, 0, 0);
+                    // Speed lines: vertical streaks upward toward enemy
+                    if(pp > 0.3 && pp < 1) {
+                        const trailAlpha = (pp - 0.3) / 0.7;
+                        ctx.save();
+                        ctx.globalAlpha = trailAlpha * 0.6;
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.lineWidth = 6;
+                        for(let i = 0; i < 8; i++) {
+                            const lx = charX + charWidth * (0.2 + i * 0.08);
+                            const ly1 = canvas.height;
+                            const ly2 = charY + charHeight * 0.3 + (1 - pp) * charHeight * 0.4;
+                            ctx.beginPath(); ctx.moveTo(lx + (Math.random()-0.5)*40, ly1); ctx.lineTo(lx + (Math.random()-0.5)*20, ly2); ctx.stroke();
+                        }
+                        ctx.restore();
+                    }
+                    if(assets.power.complete && assets.power.naturalWidth) ctx.drawImage(assets.power, (canvas.width - 400)/2, canvas.height - 100 + (charY + charHeight * 0.4 - (canvas.height - 100)) * pp - 200, 400, 400);
+                } else if(koScene.phase === 'launch') {
+                    const le = performance.now() - koScene.launchStartTime, ld = 1500, lp = Math.min(1, le / ld);
+                    if(lp >= 1) { koScene.phase = 'end'; showGameOverScreen(); }
+                    const eo = 1 - Math.pow(1 - lp, 3);
+                    const curX = charX + ((canvas.width - charWidth) / 2 - charX) * eo;
+                    const curY = charY + (-charHeight - charY) * eo;
+                    const curS = 1 + (0 - 1) * eo;
+                    const curR = 0 + (Math.PI * 4 - 0) * eo;
+                    drawMainCharacter(now, curX + (charWidth - charWidth * curS)/2, curY, curS, curR, 0);
+                    if(lp < 0.3) { ctx.globalAlpha = 1 - (lp / 0.3); ctx.drawImage(assets.power, (canvas.width - 400)/2, charY + charHeight * 0.4 - 200, 400, 400); ctx.globalAlpha = 1; }
+                }
+            }
+
+            // Update attack cooldown indicator
+            updateAttackCooldownIndicator(now);
+
+            if(!enemyAttack.active && !isGameOver && !isAnimating && !koScene && now >= enemyAttack.nextAttackTime) triggerEnemyAttack();
+            if(!isGameOver && !koScene && currentPlayerHealth <= 0) startPlayerDefeat();
+            ctx.restore();
+        }
+
+        function gameLoop() { draw(); requestAnimationFrame(gameLoop); }
+
+        document.getElementById('playBtn').addEventListener('click', startGame);
+
+        // === HEADGEAR CAROUSEL ===
+        const headgearData = [
+            { src: 'headgear.png', name: 'Default' },
+            { src: 'headgear2.png', name: 'Pak Kades' },
+            { src: 'headgear3.png', name: 'Anbu Konoha' },
+            { src: 'headgear4.png', name: 'Headgear 4' },
+            { src: 'headgear5.png', name: 'Headgear 5' },
+            { src: 'headgear6.png', name: 'Headgear 6' },
+            { src: 'headgear7.png', name: 'Headgear 7' },
+            { src: 'headgear8.png', name: 'Headgear 8' },
+            { src: 'headgear9.png', name: 'Headgear 9' },
+            { src: 'headgear10.png', name: 'Headgear 10' }
+        ];
+        let headgearIndex = 0;
+
+        function updateHeadgearDisplay() {
+            const data = headgearData[headgearIndex];
+            selectedHeadgearSrc = data.src;
+            document.getElementById('headgearDisplayImg').src = data.src;
+            document.getElementById('headgearDisplayImg').onerror = function() { this.style.display = 'none'; };
+            document.getElementById('headgearDisplayImg').onload = function() { this.style.display = 'block'; };
+            document.getElementById('headgearDisplayName').innerText = data.name;
+            // Update preview overlay
+            const prev = document.getElementById('previewHeadgear');
+            prev.src = data.src;
+            prev.style.display = 'block';
+            prev.onerror = () => { prev.style.display = 'none'; };
+        }
+        document.getElementById('headgearPrev').addEventListener('click', () => {
+            headgearIndex = (headgearIndex - 1 + headgearData.length) % headgearData.length;
+            updateHeadgearDisplay();
+        });
+        document.getElementById('headgearNext').addEventListener('click', () => {
+            headgearIndex = (headgearIndex + 1) % headgearData.length;
+            updateHeadgearDisplay();
+        });
+        updateHeadgearDisplay(); // init
+
+        // === MAP CAROUSEL ===
+        const mapData = [
+            { src: 'bg.png', name: 'Arena 1' },
+            { src: 'bg2.png', name: 'Arena 2' },
+            { src: 'bg3.png', name: 'Arena 3' },
+            { src: 'bg4.png', name: 'Arena 4' },
+            { src: 'bg5.png', name: 'Arena 5' }
+        ];
+        let mapIndex = 0;
+
+        function updateMapDisplay() {
+            const data = mapData[mapIndex];
+            selectedMapSrc = data.src;
+            document.getElementById('mapDisplayImg').src = data.src;
+            document.getElementById('mapDisplayImg').onerror = function() { this.style.background = '#1a3a5a'; };
+            document.getElementById('mapDisplayName').innerText = data.name;
+        }
+        document.getElementById('mapPrev').addEventListener('click', () => {
+            mapIndex = (mapIndex - 1 + mapData.length) % mapData.length;
+            updateMapDisplay();
+        });
+        document.getElementById('mapNext').addEventListener('click', () => {
+            mapIndex = (mapIndex + 1) % mapData.length;
+            updateMapDisplay();
+        });
+        updateMapDisplay(); // init
+        // Tag chip selection
+        document.getElementById('tagChips').addEventListener('click', function(e) {
+            const chip = e.target.closest('.tag-chip');
+            if(!chip) return;
+            document.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('selected'));
+            chip.classList.add('selected');
+            enemyTag = chip.dataset.tag;
+            // Show gender row only for gendered tags
+            const genderRow = document.getElementById('genderRow');
+            if(TAGS_GENDERED.includes(enemyTag)) {
+                genderRow.classList.add('show');
+            } else {
+                genderRow.classList.remove('show');
+                enemyGender = '';
+                document.querySelectorAll('.gender-chip').forEach(c => c.classList.remove('selected'));
+            }
+        });
+
+        // Gender chip selection
+        document.getElementById('genderChips').addEventListener('click', function(e) {
+            const chip = e.target.closest('.gender-chip');
+            if(!chip) return;
+            document.querySelectorAll('.gender-chip').forEach(c => c.classList.remove('selected'));
+            chip.classList.add('selected');
+            enemyGender = chip.dataset.gender;
+        });
+        document.getElementById('dashboardUploadBtn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            document.getElementById('dashboardFileInput').click();
+        });
+        document.getElementById('dashboardFileInput').addEventListener('change', function(e) { if(e.target.files && e.target.files[0]) handleDashboardFaceUpload(e.target.files[0]); });
+        document.getElementById('cropConfirmBtn').addEventListener('click', applyDashboardCrop);
+        document.getElementById('cropCancelBtn').addEventListener('click', cancelDashboardCrop);
+        document.getElementById('overlayLeftPunch').addEventListener('click', () => startPunch('left'));
+        document.getElementById('overlayRightPunch').addEventListener('click', () => startPunch('right'));
+        document.getElementById('overlayNuclear').addEventListener('click', startNuclearMissile);
+        document.getElementById('overlayKameha').addEventListener('click', startKameha);
+        document.getElementById('tryAgainBtn').addEventListener('click', resetGame);
+        document.getElementById('defeatTryAgainBtn').addEventListener('click', resetGame);
+        document.getElementById('koMainMenuBtn').addEventListener('click', showDashboard);
+        document.getElementById('defeatMainMenuBtn').addEventListener('click', showDashboard);
+        document.getElementById('backBtn').addEventListener('click', showDashboard);
+        document.getElementById('zoomSlider').addEventListener('input', function(e) { cropZoom = parseFloat(e.target.value); drawCropCanvas(); });
+        document.getElementById('zoomInBtn').addEventListener('click', function() { cropZoom = Math.min(3, cropZoom + 0.1); document.getElementById('zoomSlider').value = cropZoom; drawCropCanvas(); });
+        document.getElementById('zoomOutBtn').addEventListener('click', function() { cropZoom = Math.max(0.5, cropZoom - 0.1); document.getElementById('zoomSlider').value = cropZoom; drawCropCanvas(); });
+
+        const cropContainer = document.getElementById('cropContainer');
+        cropContainer.addEventListener('mousedown', function(e) { if(!cropImage) return; isDragging = true; dragStartX = e.clientX; dragStartY = e.clientY; dragStartOffsetX = cropOffsetX; dragStartOffsetY = cropOffsetY; cropContainer.style.cursor = 'grabbing'; });
+        cropContainer.addEventListener('touchstart', function(e) { if(!cropImage) return; isDragging = true; const t = e.touches[0]; dragStartX = t.clientX; dragStartY = t.clientY; dragStartOffsetX = cropOffsetX; dragStartOffsetY = cropOffsetY; }, { passive: false });
+        document.addEventListener('mousemove', function(e) { if(!isDragging || !cropImage) return; cropOffsetX = dragStartOffsetX + (e.clientX - dragStartX); cropOffsetY = dragStartOffsetY + (e.clientY - dragStartY); drawCropCanvas(); });
+        document.addEventListener('touchmove', function(e) { if(!isDragging || !cropImage) return; e.preventDefault(); const t = e.touches[0]; cropOffsetX = dragStartOffsetX + (t.clientX - dragStartX); cropOffsetY = dragStartOffsetY + (t.clientY - dragStartY); drawCropCanvas(); }, { passive: false });
+        document.addEventListener('mouseup', function() { isDragging = false; cropContainer.style.cursor = 'grab'; });
+        document.addEventListener('touchend', function() { isDragging = false; });
+
+        gameLoop();
+    })();
+</script>
+</body>
+</html>
